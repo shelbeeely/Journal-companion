@@ -1,5 +1,7 @@
 # Journal Companion
 
+> **Now cross-platform:** an installable PWA for iOS, Android, desktop and ChromeOS lives in [`web/`](web/README.md). It ports the same local-first data model, prompt engine, weather, focus timer and Desk Mode, using on-device browser AI where available.
+
 A local-first Android journaling assistant built for **Pixel 10** and Android 8.0+ (`minSdk = 26`, `targetSdk = 36`) using **Kotlin, Jetpack Compose, Material 3, Room, DataStore, and Coroutines**.
 
 Designed as a calm, hands-free **desk companion** beside a physical notebook—with optional digital notes, discreet privacy defaults, on-device **Android AICore (ML Kit GenAI Prompt API)** guidance, and cached **Open-Meteo** weather.
