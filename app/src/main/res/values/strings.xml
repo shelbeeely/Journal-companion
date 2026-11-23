@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Journal Companion</string>
+    <string name="nav_today">Today</string>
+    <string name="nav_projects">Projects</string>
+    <string name="nav_history">History</string>
+    <string name="nav_settings">Settings</string>
+    <string name="weather_attribution">Weather data by Open-Meteo.com (CC BY 4.0)</string>
+    <string name="screensaver_label">Journal Desk</string>
+</resources>

@@ -1,0 +1,6 @@
+{
+  "name": "Journal Companion",
+  "description": "Local-first Android desk companion for physical notebook journaling powered by on-device AICore (ML Kit GenAI Prompt API), Room, and DataStore.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

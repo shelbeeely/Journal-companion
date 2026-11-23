@@ -1,0 +1,37 @@
+package com.example.ui.theme
+
+import androidx.compose.ui.graphics.Color
+
+// Light ("Warm Oat Paper & Matte Sage" — glare-free off-white cards, zero pure #FFFFFF harshness)
+val IvoryPaper = Color(0xFFF3EFE7)
+val WarmParchment = Color(0xFFE9E2D5)
+val ElevatedCream = Color(0xFFFAF6EE)
+val InkCharcoal = Color(0xFF2B2723)
+val SepiaMuted = Color(0xFF686057)
+val BotanicalInk = Color(0xFF355E4E)
+val BotanicalInkLight = Color(0xFFD8E6DF)
+val TerracottaAccent = Color(0xFFA85B40)
+val TerracottaSoft = Color(0xFFF2DFD7)
+val HairlineWarm = Color(0xFFDCD3C4)
+
+// Dark ("Warm Charcoal Slate & Soft Sage" — gentle matte dark without bright-white halation)
+val ObsidianDesk = Color(0xFF1A1816)
+val DarkSlatePaper = Color(0xFF23201D)
+val DarkElevatedPaper = Color(0xFF2B2723)
+val CreamInk = Color(0xFFDAD2C5)
+val TaupeMuted = Color(0xFFA2978A)
+val SageInk = Color(0xFF90BCA9)
+val SageInkContainer = Color(0xFF233A31)
+val WarmAmberAccent = Color(0xFFD5967A)
+val WarmAmberContainer = Color(0xFF432A20)
+val HairlineDark = Color(0xFF322D28)
+
+// Dim Distraction-Free Evening Desk ("Candlelight Espresso" — ultra-low glare)
+val DimInkBlack = Color(0xFF100E0C)
+val DimSurface = Color(0xFF181512)
+val DimSurfaceElevated = Color(0xFF201C18)
+val DimWarmText = Color(0xFFC2B4A1)
+val DimMutedText = Color(0xFF817669)
+val DimAccent = Color(0xFF7FA395)
+val DimAccentContainer = Color(0xFF1B2B25)
+val DimBorder = Color(0xFF26221D)
