@@ -34,6 +34,7 @@ jobs:
         env:
           # Optional public OAuth client IDs (not secrets). Set them under Settings → Secrets and variables → Actions → Variables.
           VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
+          VITE_GOOGLE_RELAY_URL: ${{ vars.VITE_GOOGLE_RELAY_URL }}
           VITE_MS_CLIENT_ID: ${{ vars.VITE_MS_CLIENT_ID }}
           VITE_SPOTIFY_CLIENT_ID: ${{ vars.VITE_SPOTIFY_CLIENT_ID }}
           VITE_DROPBOX_APP_KEY: ${{ vars.VITE_DROPBOX_APP_KEY }}

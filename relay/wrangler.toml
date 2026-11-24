@@ -1,0 +1,13 @@
+name = "journal-companion-relay"
+main = "src/worker.ts"
+compatibility_date = "2026-11-01"
+workers_dev = true
+
+[vars]
+# Your Google OAuth "Web application" client ID (public).
+GOOGLE_CLIENT_ID = ""
+# Exact origins of your deployed PWA (and localhost for development), comma-separated.
+ALLOWED_ORIGINS = "http://localhost:5173"
+
+# The client secret is NOT stored here. Set it with:
+#   npx wrangler secret put GOOGLE_CLIENT_SECRET

@@ -1,6 +1,6 @@
 import { addDays, bearer, clip, fetchJson, fetchRaw, isoDate, item, requireField, stripHtml } from '../kit';
 import { SourceError, type ContextItem, type SourceConnector } from '../types';
-import { GOOGLE_CLIENT_FIELD } from './calendars';
+import { GOOGLE_CLIENT_FIELD, GOOGLE_RELAY_FIELD } from './calendars';
 
 /* ------------------------------------- TMDB ------------------------------------- */
 
@@ -177,7 +177,7 @@ export const youtube: SourceConnector = {
   kind: 'network',
   auth: 'google',
   scopes: ['https://www.googleapis.com/auth/youtube.readonly'],
-  credentialFields: [GOOGLE_CLIENT_FIELD],
+  credentialFields: [GOOGLE_CLIENT_FIELD, GOOGLE_RELAY_FIELD],
   ttlMs: 3 * 3_600_000,
   privacyNote: 'Read-only. Your subscriptions are fetched from Google to this device.',
   isConfigured: (c) => !!c.accessToken,

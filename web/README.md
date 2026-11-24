@@ -136,7 +136,7 @@ For every OAuth provider, register the deployed URL **exactly as served, includi
 
 | Provider | Setup |
 | --- | --- |
-| **Google** | In Google Cloud: create a project. Enable the Calendar, Tasks, Drive and YouTube Data APIs (only the ones you'll use). Configure the OAuth consent screen and add yourself as a test user. Create an OAuth client of type *Web application* and add your URLs under *Authorized JavaScript origins*. Set `VITE_GOOGLE_CLIENT_ID`. Scopes are read-only (`calendar.readonly`, `tasks.readonly`, `drive.metadata.readonly`, `youtube.readonly`) and requested only for connectors you turn on. |
+| **Google** | In Google Cloud: create a project. Enable the Calendar, Tasks, Drive and YouTube Data APIs (only the ones you'll use). Configure the OAuth consent screen and add yourself as a test user. Create an OAuth client of type *Web application* and add your URLs under *Authorized JavaScript origins*. Set `VITE_GOOGLE_CLIENT_ID`. Optionally deploy the [token relay](../relay/README.md) and set `VITE_GOOGLE_RELAY_URL` (or paste it in the card) for long-lived sign-in. Scopes are read-only (`calendar.readonly`, `tasks.readonly`, `drive.metadata.readonly`, `youtube.readonly`) and requested only for connectors you turn on. |
 | **Microsoft** | In Microsoft Entra ID: *App registrations → New*, supporting personal and work accounts. Add a platform of type **Single-page application** with your URLs as redirect URIs. Add delegated `Calendars.Read`, `Tasks.Read`, `Files.Read` and `offline_access`. Set `VITE_MS_CLIENT_ID`. |
 | **Spotify** | Create an app in the Spotify Developer Dashboard (Web API) with your URLs as redirect URIs. Set `VITE_SPOTIFY_CLIENT_ID`. Apps in development mode only work for users you add to the app. |
 | **Dropbox** | In the App Console: create an app with *Scoped access*. Enable `files.metadata.read` and add your URLs as redirect URIs. Set `VITE_DROPBOX_APP_KEY`. |
@@ -154,7 +154,9 @@ For every OAuth provider, register the deployed URL **exactly as served, includi
 
 ### Limitations
 
-- **Google sign-in lasts about 1 hour.** Without a server, Google's browser flow issues no refresh token. When it expires, the card shows *Reconnect*. Microsoft, Spotify and Dropbox refresh silently.
+- **Google sign-in is OAuth, but browser-only apps get 1-hour tokens.** Google issues refresh tokens only through the authorization-code flow, and exchanging the code for a *Web application* client requires the client secret, which a static app can't keep. (Microsoft, Spotify and Dropbox allow PKCE refresh tokens in the browser, so they renew silently.)
+  - *Without a relay:* the app renews the token quietly (no account chooser or consent screen) the next time you tap *Sync now*, a quick ask, or a card's *Connect* row. Background syncs never open popups, so after an hour away Google data waits for your next tap. On phones, renewal briefly opens and closes a tab.
+  - *With the optional relay* (`relay/`, a ~100-line Cloudflare Worker that holds the secret and stores nothing): sign-in renews in the background (refresh tokens last 7 days while your Google OAuth app is in *Testing* status; publish it for long-lived sign-in). See [`relay/README.md`](../relay/README.md).
 - **Apple:** private iCloud calendars and Apple Reminders have no web API. Use a public calendar link or import an `.ics` export.
 - **Some `.ics` URLs** block browser requests (CORS). The app says so and offers file import instead.
 - **Public services:** Nominatim and OSRM are rate-limited public services. The app caches lookups, throttles to 1 request per second, and only sends the event's location text and rounded coordinates. Heavy use should point to self-hosted instances. OSRM travel times are for driving; walking time is estimated from distance.

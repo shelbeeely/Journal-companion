@@ -18,6 +18,16 @@ const GOOGLE_CLIENT_FIELD = {
   help: 'Create a Web OAuth client in Google Cloud and add this site as an authorized JavaScript origin.',
 };
 
+const GOOGLE_RELAY_FIELD = {
+  key: 'relayUrl',
+  label: 'Token relay URL',
+  type: 'url' as const,
+  optional: true,
+  placeholder: 'https://journal-companion-relay.you.workers.dev',
+  envVar: 'VITE_GOOGLE_RELAY_URL',
+  help: 'Optional. Without it Google sign-in lasts about an hour and renews on your next tap. Deploy the relay in relay/ to stay signed in.',
+};
+
 export const MS_CLIENT_FIELD = {
   key: 'clientId',
   label: 'Microsoft app (client) ID',
@@ -27,7 +37,7 @@ export const MS_CLIENT_FIELD = {
   help: 'Register a single-page app in Microsoft Entra with this site as a redirect URI.',
 };
 
-export { GOOGLE_CLIENT_FIELD };
+export { GOOGLE_CLIENT_FIELD, GOOGLE_RELAY_FIELD };
 
 /* ------------------------------ Google Calendar ------------------------------ */
 
@@ -55,7 +65,7 @@ export const googleCalendar: SourceConnector = {
   kind: 'network',
   auth: 'google',
   scopes: ['https://www.googleapis.com/auth/calendar.readonly'],
-  credentialFields: [GOOGLE_CLIENT_FIELD],
+  credentialFields: [GOOGLE_CLIENT_FIELD, GOOGLE_RELAY_FIELD],
   ttlMs: 20 * 60_000,
   privacyNote: 'Read-only. Events from yesterday to two weeks ahead are fetched straight from Google to this device.',
   limitations: 'Without a server, Google sign-in lasts about an hour; after that, tap Reconnect.',

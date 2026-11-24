@@ -353,7 +353,7 @@ function ConnectorCard({ c, focused }: { c: SourceConnector; focused: boolean })
     (async () => {
       const [cr, cfg, authCreds] = await Promise.all([store.getCredentials(c.id), store.getConfig(c.id), authKey ? store.getCredentials(authKey) : Promise.resolve({} as Record<string, string>)]);
       const merged: Record<string, string> = { ...cr };
-      for (const f of c.credentialFields) if (!merged[f.key]) merged[f.key] = (f.key === 'clientId' ? authCreds.clientId : undefined) ?? (f.envVar ? ENV[f.envVar] ?? '' : '');
+      for (const f of c.credentialFields) if (!merged[f.key]) merged[f.key] = (f.key === 'clientId' || f.key === 'relayUrl' ? authCreds[f.key] : undefined) ?? (f.envVar ? ENV[f.envVar] ?? '' : '');
       setCreds(merged);
       setSaved(cr);
       setConfig(cfg);
@@ -400,11 +400,11 @@ function ConnectorCard({ c, focused }: { c: SourceConnector; focused: boolean })
     run(async () => {
       const clientId = (creds.clientId ?? '').trim();
       await patch({ enabled: true });
-      await store.setCredentials(c.id, { ...saved, clientId });
+      await store.setCredentials(c.id, { ...saved, clientId, ...(creds.relayUrl?.trim() ? { relayUrl: creds.relayUrl.trim() } : {}) });
       // Request every scope this provider's enabled connectors need, plus this one.
       const scopes = Array.from(new Set(CONNECTORS.filter((x) => x.auth === c.auth && (x.id === c.id || isEnabled(x.id, life.states))).flatMap((x) => x.scopes ?? [])));
       if (c.auth === 'google') {
-        await connectGoogle(store, clientId, scopes);
+        await connectGoogle(store, clientId, scopes, creds.relayUrl);
         await life.syncNow(CONNECTORS.filter((x) => x.auth === 'google' && (x.id === c.id || isEnabled(x.id, life.states))).map((x) => x.id));
       } else if (c.auth) {
         await beginPkceAuth(c.auth, clientId, c.auth === 'microsoft' ? ['offline_access', 'User.Read', ...scopes] : scopes);
@@ -496,7 +496,17 @@ function ConnectorCard({ c, focused }: { c: SourceConnector; focused: boolean })
               </button>
             ) : null}
             {enabled && (
-              <button className="btn sm" onClick={() => run(() => life.syncOne(c.id))} disabled={busy || st.status === 'syncing'}>
+              <button
+                className="btn sm"
+                onClick={() =>
+                  run(async () => {
+                    // A tap is when an expired Google token may be renewed (no consent screen).
+                    if (c.auth === 'google' && (await life.renewGoogleFromGesture())) return;
+                    await life.syncOne(c.id);
+                  })
+                }
+                disabled={busy || st.status === 'syncing'}
+              >
                 <Icon name="refresh" size={16} /> Sync now
               </button>
             )}

@@ -7,7 +7,8 @@ import { rankSuggestions, type Ranked } from '../core/context/ranking';
 import { buildTemporalContext, snoozeUntil, type TemporalContext } from '../core/context/temporal';
 import type { DeskUiPreferences, JournalEntry, JournalProject, WeatherSnapshot } from '../core/models';
 import type { ContextStore } from '../core/sources/contextStore';
-import { isEnabled, SOURCE_META } from '../core/sources/meta';
+import { renewGoogle } from '../core/sources/auth';
+import { GOOGLE_SOURCES, isEnabled, SOURCE_META } from '../core/sources/meta';
 import type { SourceSync } from '../core/sources/sync';
 import type { ContextItem, SourceState } from '../core/sources/types';
 import type { TaskKind } from '../core/taskContext';
@@ -247,6 +248,14 @@ export function useCompanion(d: CompanionDeps) {
 
   /* -------------------------------- actions -------------------------------- */
 
+  /** From a user gesture only: quietly renews an expired Google token, then refreshes Google sources. */
+  const renewGoogleFromGesture = async (): Promise<boolean> => {
+    const ids = GOOGLE_SOURCES.filter((id) => isEnabled(id, states));
+    if (!ids.length || !(await renewGoogle(d.contextStore))) return false;
+    await runSync(ids);
+    return true;
+  };
+
   const record = (s: { key: string; moment: string }, action: FeedbackEvent['action'], until?: number) => d.contextStore.recordFeedback({ key: s.key, moment: s.moment, action, at: Date.now(), until });
 
   return {
@@ -266,7 +275,11 @@ export function useCompanion(d: CompanionDeps) {
     contextStore: d.contextStore,
     syncNow: (ids?: string[]) => runSync(ids ?? [...enabledIds]),
     syncOne: (id: string) => runSync([id]),
-    ask: (moment: MomentKind) => setRequested({ moment, until: Date.now() + 30 * 60_000 }),
+    ask: (moment: MomentKind) => {
+      setRequested({ moment, until: Date.now() + 30 * 60_000 });
+      void renewGoogleFromGesture(); // the user wants fresh data; a tap is the only time GIS may renew
+    },
+    renewGoogleFromGesture,
     clearAsk: () => setRequested(null),
     dismiss: (s: { key: string; moment: string }) => record(s, 'dismissed'),
     snooze: (s: { key: string; moment: string }, choice: 'hour' | 'tonight' | 'tomorrow' | 'weekend') => record(s, 'snoozed', snoozeUntil(choice, temporal, d.prefs)),

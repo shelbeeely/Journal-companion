@@ -15,6 +15,7 @@ import {
   type WeatherSnapshot,
 } from '../core/models';
 import type { JournalRepository } from '../core/repository';
+import { GOOGLE_SOURCES } from '../core/sources/meta';
 import { countWords, localDateIso } from '../core/time';
 import { DEFAULT_AI_SETTINGS, type AiSettings } from '../core/ai/openRouterClient';
 import { composeForTask, type TaskComposition } from '../core/insights';
@@ -658,9 +659,19 @@ function useActions(repo: JournalRepository, initialBanner: string | null, conte
         setBanner('Saved to History → Saved.');
         return;
       }
-      case 'moment_connect':
-        navigate({ name: 'connections', focus: typeof ctx.sourceId === 'string' ? ctx.sourceId : undefined });
+      case 'moment_connect': {
+        const sourceId = typeof ctx.sourceId === 'string' ? ctx.sourceId : undefined;
+        // Expired Google sign-in: renew quietly in place; open Connections only if that isn't possible.
+        if (sourceId && GOOGLE_SOURCES.includes(sourceId) && life.states[sourceId]?.status === 'needs_reauth') {
+          void life.renewGoogleFromGesture().then((ok) => {
+            if (ok) setBanner('Google renewed.');
+            else navigate({ name: 'connections', focus: sourceId });
+          });
+          return;
+        }
+        navigate({ name: 'connections', focus: sourceId });
         return;
+      }
       case 'moment_action': {
         const action = String(ctx.name ?? '');
         const value = typeof ctx.value === 'string' ? ctx.value : '';

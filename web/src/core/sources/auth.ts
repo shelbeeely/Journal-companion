@@ -5,8 +5,11 @@ import { SourceError, type AuthProvider } from './types';
 /**
  * Browser-only OAuth for connected sources (no backend, no client secrets).
  * - Microsoft, Spotify, Dropbox: Authorization Code + PKCE redirect, with refresh tokens.
- * - Google: Google Identity Services token client (popup). Tokens last ~1 hour; renewing needs a
- *   user gesture, so background syncs report `needs_reauth` instead of opening popups.
+ * - Google, no relay: Google Identity Services token client (popup). Google issues browser apps
+ *   ~1 hour tokens and no refresh token, so `renewGoogle` quietly asks again (prompt: 'none') on
+ *   the user's next tap; background syncs never open popups.
+ * - Google with the optional relay (relay/): authorization-code popup; the relay holds the client
+ *   secret and returns a refresh token, which then renews in the background like the others.
  */
 
 interface PkceProvider {
@@ -120,8 +123,18 @@ export async function getAccessToken(store: ContextStore, provider: AuthProvider
   const tokens = await store.getAuth(provider);
   if (!tokens) return null;
   if (tokens.expiresAt > Date.now()) return tokens.accessToken;
-  if (provider === 'google' || !tokens.refreshToken) return null;
+  if (!tokens.refreshToken) return null;
   const meta = await store.getCredentials(`auth:${provider}`);
+  if (provider === 'google') {
+    if (!meta.relayUrl) return null;
+    try {
+      const fresh = await relayRequest(fetcher, meta.relayUrl, 'refresh', { refresh_token: tokens.refreshToken });
+      await store.setAuth('google', { ...fresh, refreshToken: fresh.refreshToken ?? tokens.refreshToken });
+      return fresh.accessToken;
+    } catch {
+      return null;
+    }
+  }
   const body = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: tokens.refreshToken, client_id: meta.clientId ?? '' });
   if (provider === 'microsoft' && meta.scopes) body.set('scope', meta.scopes);
   try {
@@ -146,10 +159,55 @@ interface GisTokenClient {
   requestAccessToken(overrides?: { prompt?: string; scope?: string }): void;
 }
 
+interface GisCodeResponse {
+  code?: string;
+  scope?: string;
+  error?: string;
+}
+
+interface GisCodeClient {
+  requestCode(): void;
+}
+
+type GisErrorCallback = (e: { type: string }) => void;
+
 declare global {
   interface Window {
-    google?: { accounts?: { oauth2?: { initTokenClient(cfg: { client_id: string; scope: string; callback: (r: GisTokenResponse) => void; error_callback?: (e: { type: string }) => void }): GisTokenClient } } };
+    google?: {
+      accounts?: {
+        oauth2?: {
+          initTokenClient(cfg: { client_id: string; scope: string; prompt?: string; callback: (r: GisTokenResponse) => void; error_callback?: GisErrorCallback }): GisTokenClient;
+          initCodeClient?(cfg: { client_id: string; scope: string; ux_mode: 'popup'; select_account?: boolean; callback: (r: GisCodeResponse) => void; error_callback?: GisErrorCallback }): GisCodeClient;
+        };
+      };
+    };
   }
+}
+
+/** Normalises a relay URL (https only, except localhost for development). */
+export function normalizeRelayUrl(raw: string | undefined): string | null {
+  const v = (raw ?? '').trim().replace(/\/+$/, '');
+  if (!v) return null;
+  try {
+    const u = new URL(v);
+    if (u.protocol !== 'https:' && !(u.protocol === 'http:' && (u.hostname === 'localhost' || u.hostname === '127.0.0.1'))) return null;
+    return `${u.origin}${u.pathname.replace(/\/+$/, '')}`;
+  } catch {
+    return null;
+  }
+}
+
+async function relayRequest(fetcher: typeof fetch, relayUrl: string, action: 'token' | 'refresh', body: Record<string, string>): Promise<AuthTokens> {
+  let res: Response;
+  try {
+    res = await fetcher(`${relayUrl}/google/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), credentials: 'omit' });
+  } catch {
+    throw new SourceError('network', "Couldn't reach your token relay. Check its URL and that it's deployed.");
+  }
+  const j = (await res.json().catch(() => ({}))) as { access_token?: string; refresh_token?: string; expires_in?: number; scope?: string; error?: string };
+  if (res.status === 403) throw new SourceError('config', 'Your token relay refused this site. Add this origin to ALLOWED_ORIGINS.', 403);
+  if (!res.ok || !j.access_token) throw new SourceError('auth', `Google sign-in via relay failed (${j.error ?? `HTTP ${res.status}`}).`, res.status);
+  return { accessToken: j.access_token, refreshToken: j.refresh_token, expiresAt: Date.now() + (j.expires_in ?? 3600) * 1000 - 60_000, scope: j.scope };
 }
 
 let gisLoading: Promise<void> | null = null;
@@ -169,29 +227,98 @@ function loadGis(): Promise<void> {
   return gisLoading;
 }
 
-/** Interactive Google sign-in (must be called from a user gesture). Requests the union of scopes. */
-export async function connectGoogle(store: ContextStore, clientId: string, scopes: string[]): Promise<void> {
+function requestGisToken(clientId: string, scope: string, prompt: string): Promise<GisTokenResponse> {
+  const oauth2 = window.google?.accounts?.oauth2;
+  if (!oauth2) throw new SourceError('network', 'Google sign-in is unavailable.');
+  return new Promise<GisTokenResponse>((resolve) => {
+    const client = oauth2.initTokenClient({ client_id: clientId, scope, prompt, callback: resolve, error_callback: (e) => resolve({ error: e.type }) });
+    client.requestAccessToken({ prompt });
+  });
+}
+
+function storeGisToken(store: ContextStore, resp: GisTokenResponse) {
+  return store.setAuth('google', { accessToken: resp.access_token!, expiresAt: Date.now() + (resp.expires_in ?? 3600) * 1000 - 60_000, scope: resp.scope });
+}
+
+/**
+ * Interactive Google sign-in (must be called from a user gesture). Requests the union of scopes.
+ * With a relay URL it uses the authorization-code flow so Google returns a refresh token.
+ */
+export async function connectGoogle(store: ContextStore, clientId: string, scopes: string[], relayUrlRaw?: string, fetcher: typeof fetch = (...a) => fetch(...a)): Promise<void> {
   if (!clientId) throw new SourceError('config', 'Add your Google OAuth client ID first (see the README).');
+  const relayUrl = relayUrlRaw?.trim() ? normalizeRelayUrl(relayUrlRaw) : null;
+  if (relayUrlRaw?.trim() && !relayUrl) throw new SourceError('config', 'The token relay URL must start with https://.');
   await loadGis();
   const oauth2 = window.google?.accounts?.oauth2;
   if (!oauth2) throw new SourceError('network', 'Google sign-in is unavailable.');
   const existing = await store.getCredentials('auth:google');
   const allScopes = Array.from(new Set([...(existing.scopes?.split(' ').filter(Boolean) ?? []), ...scopes]));
-  const resp = await new Promise<GisTokenResponse>((resolve) => {
-    const client = oauth2.initTokenClient({
-      client_id: clientId,
-      scope: allScopes.join(' '),
-      callback: resolve,
-      error_callback: (e) => resolve({ error: e.type }),
+  const meta: Record<string, string> = { clientId, scopes: allScopes.join(' ') };
+  if (relayUrl) meta.relayUrl = relayUrl;
+
+  if (relayUrl) {
+    if (!oauth2.initCodeClient) throw new SourceError('network', 'Google sign-in is unavailable.');
+    const resp = await new Promise<GisCodeResponse>((resolve) => {
+      oauth2.initCodeClient!({ client_id: clientId, scope: allScopes.join(' '), ux_mode: 'popup', callback: resolve, error_callback: (e) => resolve({ error: e.type }) }).requestCode();
     });
-    client.requestAccessToken({ prompt: existing.scopes ? '' : 'consent' });
-  });
+    if (!resp.code) throw new SourceError('auth', resp.error === 'popup_closed' ? 'Google sign-in was closed.' : `Google sign-in failed (${resp.error ?? 'unknown'}).`);
+    const prev = await store.getAuth('google');
+    const tokens = await relayRequest(fetcher, relayUrl, 'token', { code: resp.code });
+    // Google only returns a refresh token on first consent; keep the one we have otherwise.
+    await store.setAuth('google', { ...tokens, refreshToken: tokens.refreshToken ?? prev?.refreshToken });
+    await store.setCredentials('auth:google', meta);
+    return;
+  }
+
+  const resp = await requestGisToken(clientId, allScopes.join(' '), existing.scopes ? '' : 'consent');
   if (!resp.access_token) throw new SourceError('auth', resp.error === 'popup_closed' ? 'Google sign-in was closed.' : `Google sign-in failed (${resp.error ?? 'unknown'}).`);
-  await store.setAuth('google', { accessToken: resp.access_token, expiresAt: Date.now() + (resp.expires_in ?? 3600) * 1000 - 60_000, scope: resp.scope });
-  await store.setCredentials('auth:google', { clientId, scopes: allScopes.join(' ') });
+  await storeGisToken(store, resp);
+  await store.setCredentials('auth:google', meta);
 }
 
-export async function disconnectProvider(store: ContextStore, provider: AuthProvider) {
+const RENEW_INTERVAL_MS = 10 * 60_000;
+let lastRenewAttempt = 0;
+
+/** For tests. */
+export function resetGoogleRenewThrottle() {
+  lastRenewAttempt = 0;
+}
+
+/** True when Google was connected without a relay and its token has expired (renewable on a tap). */
+export async function googleNeedsRenewal(store: ContextStore): Promise<boolean> {
+  const [tokens, meta] = await Promise.all([store.getAuth('google'), store.getCredentials('auth:google')]);
+  return !!tokens && !!meta.clientId && tokens.expiresAt <= Date.now() && !(meta.relayUrl && tokens.refreshToken);
+}
+
+/**
+ * Quietly renews an expired Google token with no account chooser or consent screen
+ * (prompt: 'none'). Call only from a user gesture: GIS opens a short-lived popup.
+ * Returns true if a fresh token was stored. Throttled to one attempt per 10 minutes.
+ */
+export async function renewGoogle(store: ContextStore, now: () => number = () => Date.now()): Promise<boolean> {
+  if (!(await googleNeedsRenewal(store))) return false;
+  if (now() - lastRenewAttempt < RENEW_INTERVAL_MS) return false;
+  lastRenewAttempt = now();
+  const meta = await store.getCredentials('auth:google');
+  try {
+    await loadGis();
+    const resp = await requestGisToken(meta.clientId, meta.scopes ?? '', 'none');
+    if (!resp.access_token) return false; // interaction_required etc. → Reconnect stays available
+    await storeGisToken(store, resp);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function disconnectProvider(store: ContextStore, provider: AuthProvider, fetcher: typeof fetch = (...a) => fetch(...a)) {
+  if (provider === 'google') {
+    const [tokens, meta] = await Promise.all([store.getAuth('google'), store.getCredentials('auth:google')]);
+    const token = tokens?.refreshToken ?? tokens?.accessToken;
+    if (meta.relayUrl && token) {
+      await fetcher(`${meta.relayUrl}/google/revoke`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }), credentials: 'omit' }).catch(() => undefined);
+    }
+  }
   await store.setAuth(provider, null);
   await store.setCredentials(`auth:${provider}`, null);
 }

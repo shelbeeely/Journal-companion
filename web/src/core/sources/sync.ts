@@ -77,10 +77,12 @@ export class SourceSync {
       accessToken,
     };
     if (!c.isConfigured(ctx)) {
+      const signedIn = !!(c.auth && (await this.store.getAuth(c.auth)));
+      const renewable = signedIn && c.auth === 'google' && !(await this.store.getCredentials('auth:google')).relayUrl;
       await this.store.patchState(id, {
         enabled: true,
-        status: c.auth && (await this.store.getAuth(c.auth)) ? 'needs_reauth' : 'disconnected',
-        error: c.auth && (await this.store.getAuth(c.auth)) ? 'Sign-in expired. Tap Reconnect.' : null,
+        status: signedIn ? 'needs_reauth' : 'disconnected',
+        error: renewable ? 'Google sign-in lasts about an hour without a relay. Tap Sync now to renew.' : signedIn ? 'Sign-in expired. Tap Reconnect.' : null,
         lastAttemptAt: now.getTime(),
       });
       return;

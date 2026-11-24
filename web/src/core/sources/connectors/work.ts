@@ -1,6 +1,6 @@
 import { addDays, bearer, fetchJson, item, requireField, startOfDay } from '../kit';
 import type { ContextItem, SourceConnector } from '../types';
-import { GOOGLE_CLIENT_FIELD, MS_CLIENT_FIELD } from './calendars';
+import { GOOGLE_CLIENT_FIELD, GOOGLE_RELAY_FIELD, MS_CLIENT_FIELD } from './calendars';
 
 const recentCutoff = (now: Date, days = 14) => addDays(now, -days).getTime();
 const isToday = (iso: string | undefined | null, now: Date) => !!iso && new Date(iso).getTime() >= startOfDay(now).getTime();
@@ -22,7 +22,7 @@ export const googleTasks: SourceConnector = {
   kind: 'network',
   auth: 'google',
   scopes: ['https://www.googleapis.com/auth/tasks.readonly'],
-  credentialFields: [GOOGLE_CLIENT_FIELD],
+  credentialFields: [GOOGLE_CLIENT_FIELD, GOOGLE_RELAY_FIELD],
   ttlMs: 20 * 60_000,
   privacyNote: 'Read-only. Task titles, due dates and notes come straight from Google to this device.',
   isConfigured: (c) => !!c.accessToken,
@@ -270,7 +270,7 @@ export const googleDrive: SourceConnector = {
   kind: 'network',
   auth: 'google',
   scopes: ['https://www.googleapis.com/auth/drive.metadata.readonly'],
-  credentialFields: [GOOGLE_CLIENT_FIELD],
+  credentialFields: [GOOGLE_CLIENT_FIELD, GOOGLE_RELAY_FIELD],
   ttlMs: 60 * 60_000,
   privacyNote: 'Metadata only (file names, types and edit times). File contents are never read.',
   isConfigured: (c) => !!c.accessToken,

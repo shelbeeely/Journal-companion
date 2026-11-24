@@ -46,6 +46,9 @@ export const SOURCE_META: Record<string, { label: string; ttlMs: number }> = {
 };
 
 /** Sources enabled out of the box (no credentials, low-sensitivity, useful immediately). */
+/** Sources that use Google sign-in (kept here so renewal doesn't load the connector registry). */
+export const GOOGLE_SOURCES = ['calendar_google', 'tasks_google', 'files_gdrive', 'video_youtube'];
+
 export const DEFAULT_ENABLED = new Set(['journal', 'weather', 'holidays', 'share_target', 'files_open', 'places_geocode']);
 
 export function sourceLabel(id: string): string {
