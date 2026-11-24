@@ -1,6 +1,7 @@
 import { parseLocalDate } from '../../core/time';
 import { navigate } from '../../state/router';
 import { useStore } from '../../state/store';
+import { ProactiveSurface } from '../ProactiveSurface';
 
 export function HistoryScreen() {
   const { state, actions } = useStore();
@@ -26,6 +27,12 @@ export function HistoryScreen() {
           </select>
         )}
       </div>
+
+      {project && state.entries.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <ProactiveSurface kind="context" />
+        </div>
+      )}
 
       {!project || state.entries.length === 0 ? (
         <div className="empty card">

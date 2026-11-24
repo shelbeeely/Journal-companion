@@ -16,6 +16,12 @@ import {
 } from '../core/models';
 import type { JournalRepository } from '../core/repository';
 import { countWords, localDateIso } from '../core/time';
+import { DEFAULT_AI_SETTINGS, type AiSettings } from '../core/ai/openRouterClient';
+import { composeForTask, type TaskComposition } from '../core/insights';
+import { detectTask, type RouteName, type TaskKind } from '../core/taskContext';
+import { isStandalone } from './install';
+import { downloadBackup } from './backup';
+import { navigate, useRoute } from './router';
 import { getApproximateLocation } from '../core/weather';
 import { chime, haptic } from './feedback';
 
@@ -56,9 +62,14 @@ export interface AppState {
   companion: CompanionSurface | null;
   companionDismissed: boolean;
   draftOpenNonce: number;
+  task: TaskKind;
+  composition: TaskComposition;
+  engineBadge: string;
+  aiSettings: AiSettings;
+  route: RouteName;
 }
 
-function useActions(repo: JournalRepository) {
+function useActions(repo: JournalRepository, initialBanner: string | null = null) {
   const [isLoading, setLoading] = useState(true);
   const [projects, setProjects] = useState<JournalProject[]>([]);
   const [preferences, setPreferences] = useState<DeskUiPreferences>(DEFAULT_PREFERENCES);
@@ -75,7 +86,7 @@ function useActions(repo: JournalRepository) {
   const [isGeneratingPrompt, setGenPrompt] = useState(false);
   const [isGeneratingHint, setGenHint] = useState(false);
   const [isGeneratingAssist, setGenAssist] = useState(false);
-  const [banner, setBanner] = useState<string | null>(null);
+  const [banner, setBanner] = useState<string | null>(initialBanner);
   const [ai, setAi] = useState<AiAvailabilityState>({ kind: 'checking' });
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [weatherError, setWeatherError] = useState<string | null>(null);
@@ -85,6 +96,19 @@ function useActions(repo: JournalRepository) {
   const [dismissedKey, setDismissedKey] = useState<string | null>(null);
   const [companionNonce, setCompanionNonce] = useState(0);
   const [draftOpenNonce, setDraftOpenNonce] = useState(0);
+  const [aiSettings, setAiSettings] = useState<AiSettings>(DEFAULT_AI_SETTINGS);
+  const [lastBackupAt, setLastBackupAt] = useState<number | null>(null);
+  const [snoozed, setSnoozed] = useState<string[]>([]);
+  const [activity, setActivity] = useState<Record<number, { lastDateIso: string | null; completed: number; total: number }>>({});
+  const [storagePersisted, setStoragePersisted] = useState<boolean | null>(null);
+  // Task signals
+  // Read the route here (not via an effect from App) so task detection updates in the same render.
+  const route: RouteName = useRoute().name;
+  const [screenSaver, setScreenSaver] = useState(false);
+  const [draftFocused, setDraftFocused] = useState(false);
+  const [lastTypedAt, setLastTypedAt] = useState<number | null>(null);
+  const [enteredTodayAt, setEnteredTodayAt] = useState(() => Date.now());
+  const [editorBrief, setEditorBrief] = useState('');
 
   const todayIso = localDateIso(now);
   const activeProject = useMemo(() => {
@@ -99,11 +123,24 @@ function useActions(repo: JournalRepository) {
   /* ------------------------------- data loading ------------------------------- */
 
   const reloadGlobal = useCallback(async () => {
-    const [p, prefs, w, blocks] = await Promise.all([repo.getProjects(), repo.getPreferences(), repo.getCachedWeather(), repo.getFocusBlocksToday()]);
+    const [p, prefs, w, blocks, aiS, backupAt, snooze, act] = await Promise.all([
+      repo.getProjects(),
+      repo.getPreferences(),
+      repo.getCachedWeather(),
+      repo.getFocusBlocksToday(),
+      repo.getAiSettings(),
+      repo.getLastBackupAt(),
+      repo.getSnoozedInsights(),
+      repo.getActivitySummary(),
+    ]);
     setProjects(p);
     setPreferences(prefs);
     setWeather(w);
     setFocusBlocks(blocks);
+    setAiSettings((prev) => (prev.apiKey === aiS.apiKey && prev.model === aiS.model && prev.consentedAt === aiS.consentedAt ? prev : aiS));
+    setLastBackupAt(backupAt);
+    setSnoozed(snooze);
+    setActivity(act);
   }, [repo]);
 
   const reloadProjectData = useCallback(async () => {
@@ -128,17 +165,39 @@ function useActions(repo: JournalRepository) {
     });
   }, [repo, reloadGlobal, reloadProjectData]);
 
+  // Re-check AI whenever the connection, consent or model changes.
   useEffect(() => {
+    repo.ai.resetAvailability();
+    setAi({ kind: 'checking' });
     repo.ai.checkAvailability().then(setAi);
-  }, [repo]);
+  }, [repo, aiSettings.apiKey, aiSettings.model, aiSettings.consentedAt]);
+
+  useEffect(() => {
+    navigator.storage?.persisted?.().then(setStoragePersisted).catch(() => setStoragePersisted(null));
+  }, []);
 
   // Clock tick (30s) drives time cards, day-part changes and midnight rollover.
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 30_000);
-    const onVisible = () => document.visibilityState === 'visible' && setNow(new Date());
+    // 15s while visible (task detection needs it), paused while hidden to save battery.
+    let id: ReturnType<typeof setInterval> | null = null;
+    const start = () => {
+      if (id == null && document.visibilityState === 'visible') id = setInterval(() => setNow(new Date()), 15_000);
+    };
+    const stop = () => {
+      if (id != null) clearInterval(id);
+      id = null;
+    };
+    start();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        setNow(new Date());
+        setEnteredTodayAt(Date.now());
+        start();
+      } else stop();
+    };
     document.addEventListener('visibilitychange', onVisible);
     return () => {
-      clearInterval(id);
+      stop();
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, []);
@@ -223,6 +282,7 @@ function useActions(repo: JournalRepository) {
       setUndoStack((s) => (s.length === 0 || Math.abs(next.length - current.length) > 12 ? [...s, current].slice(-20) : s));
       setDraftText(next);
       live.current.draftText = next;
+      setLastTypedAt(Date.now());
       const entry = live.current.todayEntry;
       if (!entry) return;
       if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -434,10 +494,19 @@ function useActions(repo: JournalRepository) {
     : null;
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
+  // Cost guard: cues are regenerated on a new prompt/project/refresh, otherwise at most every 10 minutes.
+  const lastCues = useRef<{ key: string; at: number } | null>(null);
   useEffect(() => {
-    setCues(null);
     const s = snapshotRef.current;
-    if (!s || ai.kind !== 'available') return;
+    if (!s || ai.kind !== 'available' || (navigator as { connection?: { saveData?: boolean } }).connection?.saveData) {
+      setCues(null);
+      return;
+    }
+    const hardKey = `${s.projectId}|${s.promptText}|${s.discreetMode}|${companionNonce}`;
+    const prev = lastCues.current;
+    if (prev && prev.key === hardKey && Date.now() - prev.at < 10 * 60 * 1000) return;
+    lastCues.current = { key: hardKey, at: Date.now() };
+    setCues(null);
     let cancelled = false;
     repo.ai.synthesizeDeskCues(s).then((c) => !cancelled && setCues(c));
     return () => {
@@ -455,6 +524,112 @@ function useActions(repo: JournalRepository) {
     pushUndo(current);
     setDraftAndSave(current.trim() ? `${current}\n\n${starter}` : starter);
     setDraftOpenNonce((n) => n + 1);
+  };
+
+  /* ------------------------------ task-aware composition ------------------------------ */
+
+  const draftWords = countWords(draftText);
+  const prevRoute = useRef(route);
+  useEffect(() => {
+    if (route === 'today' && prevRoute.current !== 'today') setEnteredTodayAt(Date.now());
+    prevRoute.current = route;
+  }, [route]);
+  const task = detectTask({
+    route,
+    screenSaver,
+    hasProject: !!activeProject,
+    todayCompleted: todayEntry?.isCompleted === true,
+    draftFocused,
+    lastTypedAtMs: lastTypedAt,
+    timerRunning: timer.isRunning,
+    timerPhase: timer.phase,
+    timerJustFinished: timer.justFinishedPhase,
+    draftWords,
+    estimatedWords: snapshot?.estimatedWordsPerPage ?? null,
+    enteredTodayAtMs: enteredTodayAt,
+    nowMs: Math.max(now.getTime(), lastTypedAt ?? 0),
+  });
+  const composition = useMemo(
+    () =>
+      composeForTask(
+        {
+          task,
+          now,
+          project: activeProject,
+          projects,
+          todayEntry,
+          entries,
+          history,
+          snapshot,
+          weather,
+          useCelsius: preferences.useCelsius,
+          timer,
+          focusBlocksToday,
+          draftWords,
+          discreet: preferences.discreetDeskModeEnabled,
+          lastBackupAt,
+          storagePersisted,
+          ai,
+          aiConnected: !!aiSettings.apiKey && !!aiSettings.consentedAt,
+          installed: isStandalone(),
+          editorBrief,
+          projectActivity: activity,
+        },
+        preferences.proactiveDensity,
+        snoozed,
+      ),
+    [task, now, activeProject, projects, todayEntry, entries, history, snapshot, weather, preferences, timer, focusBlocksToday, draftWords, lastBackupAt, storagePersisted, ai, aiSettings, editorBrief, activity, snoozed],
+  );
+  const engineBadge = cues ? `AI · ${aiSettings.model.split('/').pop()}` : 'Desk agent · local';
+
+  const exportBackup = async () => {
+    await downloadBackup(repo);
+    setBanner('Backup downloaded.');
+  };
+
+  /** Handles actions dispatched from A2UI surfaces. */
+  const handleDeskAction = (name: string, context: Record<string, unknown>) => {
+    const run = (n: string) => {
+      switch (n) {
+        case 'use_starter':
+          return companionUseStarter();
+        case 'next_angle':
+          return requestHint();
+        case 'start_focus':
+          return actions.startQuickFocus();
+        case 'start_break':
+          return startBreak(5);
+        case 'refresh_surface':
+          return actions.refreshCompanion();
+        case 'dismiss_surface':
+          return actions.dismissCompanion();
+        case 'refresh_weather':
+          return preferences.manualCityQuery ? refreshWeatherByCity(preferences.manualCityQuery) : refreshWeatherByLocation();
+        case 'mark_done':
+          return markDone(true);
+        case 'tighten_draft':
+          setDraftOpenNonce((x) => x + 1);
+          return runAssist('tighten');
+        case 'open_history':
+          return navigate({ name: 'history' });
+        case 'open_settings':
+          return navigate({ name: 'settings' });
+        case 'open_today':
+          return navigate({ name: 'today' });
+        case 'export_backup':
+          return exportBackup();
+      }
+    };
+    if (name === 'snooze_insight' && typeof context.id === 'string') {
+      setSnoozed((s) => [...s, context.id as string]);
+      repo.snoozeInsight(context.id);
+      return;
+    }
+    if (name === 'insight_action') {
+      if (typeof context.name === 'string' && context.name) run(context.name);
+      return;
+    }
+    run(name);
   };
 
   const state: AppState = {
@@ -484,6 +659,11 @@ function useActions(repo: JournalRepository) {
     companion,
     companionDismissed: !!windowKey && dismissedKey === windowKey,
     draftOpenNonce,
+    task,
+    composition,
+    engineBadge,
+    aiSettings,
+    route,
   };
 
   const actions = {
@@ -498,7 +678,12 @@ function useActions(repo: JournalRepository) {
       setAi({ kind: 'checking' });
       setAi(await repo.ai.checkAvailability());
     },
-    downloadAi: () => repo.ai.downloadModel(setAi),
+    updateAiSettings: (patch: Partial<AiSettings>) => repo.updateAiSettings(patch),
+    handleDeskAction,
+    exportBackup,
+    setScreenSaver,
+    setDraftFocused,
+    setEditorBrief,
     onDraftChanged,
     undoDraft,
     requestHint,
@@ -539,8 +724,8 @@ function useActions(repo: JournalRepository) {
 type Store = ReturnType<typeof useActions>;
 const StoreContext = createContext<Store | null>(null);
 
-export function AppStoreProvider({ repo, children }: { repo: JournalRepository; children: ReactNode }) {
-  const store = useActions(repo);
+export function AppStoreProvider({ repo, initialBanner = null, children }: { repo: JournalRepository; initialBanner?: string | null; children: ReactNode }) {
+  const store = useActions(repo, initialBanner);
   return <StoreContext.Provider value={store}>{children}</StoreContext.Provider>;
 }
 

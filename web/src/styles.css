@@ -1,23 +1,20 @@
 @font-face {
   font-family: 'Newsreader';
-  src: url('./assets/fonts/newsreader.ttf') format('truetype');
+  src: url('./assets/fonts/newsreader.woff2') format('woff2');
   font-display: swap;
   font-weight: 200 800;
 }
 @font-face {
   font-family: 'Plus Jakarta Sans';
-  src: url('./assets/fonts/plus_jakarta_sans.ttf') format('truetype');
+  src: url('./assets/fonts/plus_jakarta_sans.woff2') format('woff2');
   font-display: swap;
   font-weight: 200 800;
 }
-@font-face {
-  font-family: 'JetBrains Mono';
-  src: url('./assets/fonts/jetbrains_mono.ttf') format('truetype');
-  font-display: swap;
-  font-weight: 100 800;
-}
 
 /* Warm Light — matte oat paper, no pure-white glare */
+:root {
+  --nav-h: 72px;
+}
 :root,
 :root[data-theme='light'] {
   color-scheme: light;
@@ -120,7 +117,7 @@ a {
   font-family: 'Newsreader', Georgia, 'Times New Roman', serif;
 }
 .mono {
-  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-variant-numeric: tabular-nums;
 }
 .muted {
@@ -179,6 +176,7 @@ a {
 .bottom-nav {
   position: fixed;
   inset: auto 0 0 0;
+  height: calc(var(--nav-h) + env(safe-area-inset-bottom));
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   background: var(--surface-low);
@@ -954,5 +952,403 @@ dialog.sheet::backdrop {
   *::after {
     transition: none !important;
     animation: none !important;
+  }
+}
+
+/* ===================== Proactive desk (A2UI surfaces) ===================== */
+
+.a2-surface a2ui-surface,
+.a2-surface {
+  display: block;
+}
+.a2-card {
+  padding: 16px;
+}
+.a2-column {
+  display: flex;
+  flex-direction: column;
+}
+.a2-column > div:empty {
+  display: none;
+}
+.a2-header .badge {
+  gap: 6px;
+}
+.a2-headline {
+  font-size: 1.25rem;
+  font-weight: 500;
+  margin: 8px 0 2px;
+}
+.a2-detail {
+  margin: 0;
+}
+.a2-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+  gap: 8px;
+}
+.a2-metric {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.a2-metric-value {
+  font-weight: 700;
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+}
+.a2-insights {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.a2-insight {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 10px 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface-low);
+}
+.a2-insight.tone-positive {
+  border-color: transparent;
+  background: var(--primary-soft);
+}
+.a2-insight.tone-attention {
+  border-color: transparent;
+  background: var(--accent-soft);
+}
+.a2-insight-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--primary);
+  margin-top: 1px;
+}
+.tone-attention .a2-insight-icon {
+  color: var(--accent);
+  background: var(--surface);
+}
+.tone-positive .a2-insight-icon {
+  background: var(--surface);
+}
+.a2-insight-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+.a2-insight-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.a2-snooze {
+  width: 32px;
+  height: 32px;
+}
+.a2-block {
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+}
+.a2-block.tonal {
+  background: var(--surface-2);
+  border-color: transparent;
+}
+.a2-starter {
+  font-size: 1.08rem;
+  font-style: italic;
+  margin: 6px 0;
+}
+.a2-ambient {
+  padding-top: 2px;
+}
+.a2-glance {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: -4px -16px 12px;
+  padding: 0 16px 2px;
+  scroll-snap-type: x proximity;
+}
+.a2-glance::-webkit-scrollbar {
+  display: none;
+}
+.a2-glance > div {
+  flex: none;
+  scroll-snap-align: start;
+}
+.a2-glance-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.a2-glance-chip.tone-positive {
+  background: var(--primary-soft);
+  color: var(--primary);
+  border-color: transparent;
+}
+.a2-glance-chip.tone-attention {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: transparent;
+}
+
+/* Screen saver uses the dim palette for its embedded surface. */
+.ss-theme {
+  --bg: #100e0c;
+  --surface: rgba(255, 245, 230, 0.04);
+  --surface-low: rgba(255, 245, 230, 0.03);
+  --surface-2: rgba(255, 245, 230, 0.06);
+  --surface-3: rgba(255, 245, 230, 0.09);
+  --text: #c9bba7;
+  --muted: #85796b;
+  --primary: #7fa395;
+  --on-primary: #100e0c;
+  --primary-soft: rgba(127, 163, 149, 0.14);
+  --accent: #c9a88f;
+  --accent-soft: rgba(201, 168, 143, 0.12);
+  --line: rgba(255, 245, 230, 0.07);
+  --shadow: none;
+  color: var(--text);
+}
+.a2-ambient-card {
+  background: var(--surface);
+}
+
+/* ============================ Mobile ergonomics ============================ */
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+body {
+  overscroll-behavior-y: none;
+}
+button,
+a,
+input,
+select,
+textarea,
+label {
+  touch-action: manipulation;
+}
+/* 16px minimum stops iOS Safari zooming into focused fields. */
+.input,
+textarea.input,
+select.input {
+  font-size: max(16px, 1rem);
+}
+
+@media (pointer: coarse) {
+  .chip,
+  .btn.sm,
+  .segmented button {
+    min-height: 44px;
+  }
+  .icon-btn {
+    width: 44px;
+    height: 44px;
+  }
+  .a2-snooze {
+    width: 44px;
+    height: 44px;
+  }
+  .row {
+    gap: 10px;
+  }
+}
+
+.desk-tabs .segmented {
+  display: flex;
+  width: 100%;
+}
+.desk-tabs .segmented button {
+  flex: 1;
+}
+
+.more-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-top: 14px;
+}
+.more-grid .icon-btn {
+  width: auto;
+  height: auto;
+  min-height: 72px;
+  flex-direction: column;
+  gap: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 12px;
+}
+.more-grid .icon-btn[aria-pressed='true'] {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.action-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+  z-index: 19;
+  padding: 10px 16px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid var(--line);
+}
+.action-bar .prompt-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.2fr;
+  gap: 8px;
+}
+.action-bar .btn {
+  min-height: 46px;
+  padding-inline: 8px;
+}
+
+@media (max-width: 599px) {
+  .content {
+    padding-bottom: calc(var(--nav-h) + 24px + env(safe-area-inset-bottom));
+  }
+  /* Today also has the sticky action bar above the nav. */
+  .content:has(.action-bar) {
+    padding-bottom: calc(var(--nav-h) + 96px + env(safe-area-inset-bottom));
+  }
+  h1 {
+    font-size: 1.6rem;
+  }
+  .prompt-card {
+    padding: 20px 18px;
+  }
+  .pulse-strip {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: none;
+    margin-inline: -16px;
+    padding-inline: 16px;
+  }
+  .pulse-strip::-webkit-scrollbar {
+    display: none;
+  }
+  .card {
+    padding: 16px;
+  }
+  .banner {
+    bottom: calc(var(--nav-h) + 80px + env(safe-area-inset-bottom));
+  }
+
+  /* Dialogs become bottom sheets. */
+  dialog.sheet {
+    width: 100vw;
+    max-width: 100vw;
+    margin: auto 0 0;
+    border-radius: 24px 24px 0 0;
+    max-height: 88dvh;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  dialog.sheet[open] {
+    animation: sheet-up 220ms ease-out;
+  }
+  dialog.sheet .sheet-body::before {
+    content: '';
+    display: block;
+    width: 40px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--line);
+    margin: -8px auto 14px;
+  }
+  .sheet-actions {
+    position: sticky;
+    bottom: 0;
+    background: var(--surface);
+    padding-top: 10px;
+  }
+}
+@keyframes sheet-up {
+  from {
+    transform: translateY(40px);
+    opacity: 0.6;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* On-screen keyboard open: step fixed bars aside so the note has the space. */
+html[data-keyboard='open'] .bottom-nav,
+html[data-keyboard='open'] .action-bar,
+html[data-keyboard='open'] .banner {
+  display: none;
+}
+
+/* Phone propped sideways on a desk: two columns + slim rail instead of the bottom nav. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .rail {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    position: sticky;
+    top: 0;
+    height: 100dvh;
+    width: 72px;
+    padding: max(8px, env(safe-area-inset-top)) 0 8px max(0px, env(safe-area-inset-left));
+    align-items: center;
+    background: var(--surface-low);
+    border-right: 1px solid var(--line);
+  }
+  .rail .brand {
+    display: none;
+  }
+  .rail .nav-item {
+    padding: 6px 2px;
+  }
+  .bottom-nav,
+  .action-bar {
+    display: none;
+  }
+  .content {
+    padding: 12px max(16px, env(safe-area-inset-right)) 16px 16px;
+  }
+  .desk.with-cards {
+    grid-template-columns: minmax(0, 1.2fr) minmax(280px, 1fr);
+  }
+  .prompt-text {
+    font-size: 1.35rem;
+    margin: 6px 0 12px;
+  }
+  .desk-bar h1,
+  .desk-bar select {
+    font-size: 1.2rem;
   }
 }

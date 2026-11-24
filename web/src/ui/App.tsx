@@ -1,14 +1,18 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { hrefFor, useRoute, type Route } from '../state/router';
 import { useStore } from '../state/store';
 import { useApplyTheme } from '../state/theme';
 import { Icon, type IconName } from './icons';
-import { ScreenSaver, useIdle } from './ScreenSaver';
-import { HistoryScreen } from './screens/HistoryScreen';
-import { ProjectEditorScreen } from './screens/ProjectEditorScreen';
-import { ProjectsScreen } from './screens/ProjectsScreen';
-import { SettingsScreen } from './screens/SettingsScreen';
+import { useIdle } from './idle';
 import { TodayScreen } from './screens/TodayScreen';
+import { useKeyboardOpen } from '../state/media';
+
+// Today ships in the main chunk; everything else loads on demand (and is still precached for offline).
+const HistoryScreen = lazy(() => import('./screens/HistoryScreen').then((m) => ({ default: m.HistoryScreen })));
+const ProjectEditorScreen = lazy(() => import('./screens/ProjectEditorScreen').then((m) => ({ default: m.ProjectEditorScreen })));
+const ProjectsScreen = lazy(() => import('./screens/ProjectsScreen').then((m) => ({ default: m.ProjectsScreen })));
+const SettingsScreen = lazy(() => import('./screens/SettingsScreen').then((m) => ({ default: m.SettingsScreen })));
+const ScreenSaver = lazy(() => import('./ScreenSaver').then((m) => ({ default: m.ScreenSaver })));
 import { UpdatePrompt } from './UpdatePrompt';
 
 const NAV: { route: Route; label: string; icon: IconName; match: Route['name'][] }[] = [
@@ -25,6 +29,9 @@ export function App() {
   const [screenSaver, setScreenSaver] = useState(false);
   const veiled = usePrivacyVeil(prefs.privacyVeilEnabled);
   useApplyTheme(prefs.themeMode, prefs.dimDeskModeEnabled);
+  useKeyboardOpen();
+  // Feed the task detector.
+  useEffect(() => actions.setScreenSaver(screenSaver), [screenSaver]); // eslint-disable-line react-hooks/exhaustive-deps
   useIdle(prefs.screenSaverIdleMinutes, route.name === 'today' && !!state.activeProject && !screenSaver, () => setScreenSaver(true));
 
   // Keyboard shortcuts on the desk (ignored while typing).
@@ -81,7 +88,7 @@ export function App() {
           {nav}
         </nav>
         <main className="content" id="main">
-          {screen}
+          <Suspense fallback={<div className="empty muted">Loading…</div>}>{screen}</Suspense>
         </main>
       </div>
       <nav className="bottom-nav" aria-label="Main">
@@ -97,7 +104,11 @@ export function App() {
         </div>
       )}
       <UpdatePrompt />
-      {screenSaver && <ScreenSaver onExit={() => setScreenSaver(false)} />}
+      {screenSaver && (
+        <Suspense fallback={null}>
+          <ScreenSaver onExit={() => setScreenSaver(false)} />
+        </Suspense>
+      )}
       {veiled && (
         <div className="privacy-veil" aria-hidden="true">
           <div>

@@ -5,6 +5,7 @@ import { navigate } from '../../state/router';
 import { useStore } from '../../state/store';
 import { Spinner, Switch, TextField } from '../controls';
 import { Icon } from '../icons';
+import { ProactiveSurface } from '../ProactiveSurface';
 
 const SAMPLE_BRIEFS = [
   {
@@ -54,6 +55,12 @@ export function ProjectEditorScreen({ editingId }: { editingId: number | null })
   const [analyzing, setAnalyzing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loadedFor, setLoadedFor] = useState<number | null>(null);
+
+  // Feed the brief to the proactive desk's live setup preview.
+  useEffect(() => {
+    actions.setEditorBrief(brief);
+  }, [brief]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => actions.setEditorBrief(''), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Populate the form once the project being edited is available.
   useEffect(() => {
@@ -161,7 +168,7 @@ export function ProjectEditorScreen({ editingId }: { editingId: number | null })
   };
 
   const aiReady = state.ai.kind === 'available';
-  const analyzeLabel = editing ? 'Re-analyze brief' : aiReady ? 'Propose with on-device AI' : 'Propose setup';
+  const analyzeLabel = editing ? 'Re-analyze brief' : aiReady ? 'Propose with AI' : 'Propose setup';
 
   return (
     <div className="content-narrow">
@@ -182,6 +189,11 @@ export function ProjectEditorScreen({ editingId }: { editingId: number | null })
           )}
         </div>
       </div>
+      {(editing || step < 3) && (
+        <div style={{ marginBottom: 14 }}>
+          <ProactiveSurface kind="context" />
+        </div>
+      )}
       {!editing && (
         <div className="stepper" aria-hidden="true">
           {STEP_TITLES.map((t, i) => (
@@ -201,6 +213,7 @@ export function ProjectEditorScreen({ editingId }: { editingId: number | null })
             rows={6}
             aria-label="Brief"
             data-testid="project_brief_input"
+            autoCapitalize="sentences"
             value={brief}
             placeholder="e.g., pocket journal for daily reflections, or notes for a friend…"
             onChange={(e) => setBrief(e.target.value)}
@@ -312,13 +325,13 @@ export function ProjectEditorScreen({ editingId }: { editingId: number | null })
               Back
             </button>
             <button className="btn filled" onClick={analyze} disabled={analyzing} data-testid="analyze_brief_button">
-              {analyzing ? <Spinner label="Analyzing on-device…" /> : analyzeLabel}
+              {analyzing ? <Spinner label="Analyzing…" /> : analyzeLabel}
             </button>
             <button className="btn text" onClick={skipAi} data-testid="wizard_step3_skip_ai">
               Skip AI
             </button>
           </div>
-          {!aiReady && <p className="hint">No on-device model in this browser—your brief is analyzed by the built-in template engine, entirely offline.</p>}
+          {!aiReady && <p className="hint">AI isn't connected, so your brief is analyzed by the built-in template engine, entirely on this device.</p>}
         </section>
       )}
 
@@ -361,10 +374,10 @@ function ReviewCard({
       <section className="card stack" style={{ marginTop: 12 }} data-testid="proposed_setup_review_card">
         <div className="spread">
           <h2>{editing ? '2. Review & adjust setup' : 'Review & Edit Proposal'}</h2>
-          {setup.usedAi && <span className="badge">On-device AI</span>}
+          {setup.usedAi && <span className="badge">AI</span>}
         </div>
         <p className="small muted" style={{ margin: 0 }}>
-          {setup.usedAi ? 'Proposed on-device. Edit any field before saving.' : 'Prepared locally. Unknown fields stay unset—edit anything below.'}
+          {setup.usedAi ? 'Proposed by AI. Edit any field before saving.' : 'Prepared locally. Unknown fields stay unset—edit anything below.'}
         </p>
         {setup.statusNote && <p className="hint" style={{ margin: 0 }}>{setup.statusNote}</p>}
         <TextField label="Discreet project title" value={setup.title} onChange={(v) => set({ title: v })} testId="setup_title_input" />

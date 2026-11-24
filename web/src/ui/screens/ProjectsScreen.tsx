@@ -4,6 +4,7 @@ import { navigate } from '../../state/router';
 import { useStore } from '../../state/store';
 import { Dialog } from '../controls';
 import { Icon } from '../icons';
+import { ProactiveSurface } from '../ProactiveSurface';
 
 export function ProjectsScreen() {
   const { state, actions } = useStore();
@@ -22,6 +23,12 @@ export function ProjectsScreen() {
           <Icon name="add" /> New project
         </button>
       </div>
+
+      {state.projects.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <ProactiveSurface kind="context" />
+        </div>
+      )}
 
       {state.projects.length === 0 ? (
         <div className="empty card">

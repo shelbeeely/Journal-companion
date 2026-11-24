@@ -1,6 +1,6 @@
 # Journal Companion
 
-> **Now cross-platform:** an installable PWA for iOS, Android, desktop and ChromeOS lives in [`web/`](web/README.md). It ports the same local-first data model, prompt engine, weather, focus timer and Desk Mode, using on-device browser AI where available.
+> **Now cross-platform:** an installable, mobile-first PWA for iOS, Android, desktop and ChromeOS lives in [`web/`](web/README.md). It ports the same local-first data model, prompt engine, weather, focus timer and Desk Mode. Its task-aware A2UI desk proactively surfaces what matters for whatever you're doing, and optional AI comes from OpenRouter with your own account.
 
 A local-first Android journaling assistant built for **Pixel 10** and Android 8.0+ (`minSdk = 26`, `targetSdk = 36`) using **Kotlin, Jetpack Compose, Material 3, Room, DataStore, and Coroutines**.
 

@@ -5,7 +5,9 @@ import { navigate } from '../../state/router';
 import { useStore } from '../../state/store';
 import { useEffectiveDark } from '../../state/theme';
 import { Dialog, Segmented, Switch } from '../controls';
-import { CompanionCard, DateTimeCard, FocusTimerCard, WeatherCard, formatClock } from '../deskCards';
+import { DateTimeCard, FocusTimerCard, WeatherCard, formatClock } from '../deskCards';
+import { ProactiveSurface } from '../ProactiveSurface';
+import { PHONE_QUERY, useMediaQuery } from '../../state/media';
 import { Icon } from '../icons';
 import { useWakeLock } from '../../state/wakeLock';
 
@@ -16,6 +18,8 @@ export function TodayScreen({ onOpenScreenSaver }: { onOpenScreenSaver: () => vo
   const [customizeOpen, setCustomizeOpen] = useState(false);
   const isDark = useEffectiveDark(prefs.themeMode, prefs.dimDeskModeEnabled);
   const wake = useWakeLock(!!project && prefs.keepScreenAwakeInDeskMode);
+  const isPhone = useMediaQuery(PHONE_QUERY);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   if (state.isLoading) return <div className="empty muted">Opening your desk…</div>;
 
@@ -34,6 +38,40 @@ export function TodayScreen({ onOpenScreenSaver }: { onOpenScreenSaver: () => vo
       </div>
     );
   }
+
+  const labelled = (label: string) => (isPhone ? <span>{label}</span> : null);
+  const deskOptions = (
+    <>
+      <button
+        className="icon-btn"
+        aria-pressed={prefs.dimDeskModeEnabled}
+        aria-label={prefs.dimDeskModeEnabled ? 'Exit extra-dim evening mode' : 'Enable extra-dim evening mode'}
+        title={prefs.dimDeskModeEnabled ? 'Exit extra-dim evening mode' : 'Enable extra-dim evening mode'}
+        onClick={() => actions.updatePreferences({ dimDeskModeEnabled: !prefs.dimDeskModeEnabled })}
+      >
+        <Icon name="dim" />
+        {labelled(prefs.dimDeskModeEnabled ? 'Exit dim mode' : 'Dim mode')}
+      </button>
+      <button
+        className="icon-btn"
+        aria-pressed={prefs.keepScreenAwakeInDeskMode}
+        aria-label={prefs.keepScreenAwakeInDeskMode ? 'Allow screen sleep in Desk Mode' : 'Keep screen awake in Desk Mode'}
+        title={prefs.keepScreenAwakeInDeskMode ? (wake.supported ? 'Screen stays awake in Desk Mode' : 'Keep-awake not supported by this browser') : 'Screen may sleep'}
+        onClick={() => actions.updatePreferences({ keepScreenAwakeInDeskMode: !prefs.keepScreenAwakeInDeskMode })}
+      >
+        <Icon name={prefs.keepScreenAwakeInDeskMode ? 'awake' : 'sleep'} />
+        {labelled(prefs.keepScreenAwakeInDeskMode ? 'Screen stays awake' : 'Screen may sleep')}
+      </button>
+      <button className="icon-btn" aria-label="Ambient screen saver" title="Ambient screen saver" onClick={onOpenScreenSaver}>
+        <Icon name="fullscreen" />
+        {labelled('Screen saver')}
+      </button>
+      <button className="icon-btn" aria-label="Customize Desk Mode cards and appearance" title="Desk appearance & cards" onClick={() => setCustomizeOpen(true)}>
+        <Icon name="tune" />
+        {labelled('Cards & appearance')}
+      </button>
+    </>
+  );
 
   const anyCard = project.showTimerCard || project.showDateTimeCard || project.showWeatherCard || project.showSparksCard || project.showRhythmCard;
   const showCards = anyCard && !hideCards;
@@ -69,13 +107,13 @@ export function TodayScreen({ onOpenScreenSaver }: { onOpenScreenSaver: () => vo
             </h1>
           )}
         </div>
-        {!showCards && project.showTimerCard && (
+        {!isPhone && !showCards && project.showTimerCard && (
           <button className="chip" onClick={actions.toggleTimer} data-testid="desk_compact_timer_chip">
             <Icon name="timer" size={16} />
             {state.timer.isRunning ? `Pause ${formatClock(state.timer.remainingSeconds)}` : `Focus ${formatClock(state.timer.remainingSeconds)}`}
           </button>
         )}
-        {anyCard && (
+        {!isPhone && anyCard && (
           <button className="icon-btn" aria-label={hideCards ? 'Show side cards' : 'Hide side cards'} title={hideCards ? 'Show side cards' : 'Hide side cards'} onClick={() => setHideCards(!hideCards)}>
             <Icon name="sidebar" />
           </button>
@@ -88,33 +126,16 @@ export function TodayScreen({ onOpenScreenSaver }: { onOpenScreenSaver: () => vo
         >
           <Icon name={isDark ? 'sun' : 'moon'} />
         </button>
-        <button
-          className="icon-btn"
-          aria-pressed={prefs.dimDeskModeEnabled}
-          aria-label={prefs.dimDeskModeEnabled ? 'Exit extra-dim evening mode' : 'Enable extra-dim evening mode'}
-          title={prefs.dimDeskModeEnabled ? 'Exit extra-dim evening mode' : 'Enable extra-dim evening mode'}
-          onClick={() => actions.updatePreferences({ dimDeskModeEnabled: !prefs.dimDeskModeEnabled })}
-        >
-          <Icon name="dim" />
-        </button>
-        <button
-          className="icon-btn"
-          aria-pressed={prefs.keepScreenAwakeInDeskMode}
-          aria-label={prefs.keepScreenAwakeInDeskMode ? 'Allow screen sleep in Desk Mode' : 'Keep screen awake in Desk Mode'}
-          title={
-            prefs.keepScreenAwakeInDeskMode ? (wake.supported ? 'Screen stays awake in Desk Mode' : 'Keep-awake not supported by this browser') : 'Screen may sleep'
-          }
-          onClick={() => actions.updatePreferences({ keepScreenAwakeInDeskMode: !prefs.keepScreenAwakeInDeskMode })}
-        >
-          <Icon name={prefs.keepScreenAwakeInDeskMode ? 'awake' : 'sleep'} />
-        </button>
-        <button className="icon-btn" aria-label="Ambient screen saver" title="Ambient screen saver" onClick={onOpenScreenSaver}>
-          <Icon name="fullscreen" />
-        </button>
-        <button className="icon-btn" aria-label="Customize Desk Mode cards and appearance" title="Desk appearance & cards" onClick={() => setCustomizeOpen(true)}>
-          <Icon name="tune" />
-        </button>
+        {isPhone ? (
+          <button className="icon-btn" aria-label="More desk options" onClick={() => setMoreOpen(true)} data-testid="desk_more_button">
+            <Icon name="more" />
+          </button>
+        ) : (
+          deskOptions
+        )}
       </div>
+
+      {isPhone && <ProactiveSurface kind="glance" />}
 
       <div className={`desk ${showCards ? 'with-cards' : ''}`}>
         <div className="stack">
@@ -148,22 +169,7 @@ export function TodayScreen({ onOpenScreenSaver }: { onOpenScreenSaver: () => vo
               </p>
             )}
             {!prefs.discreetDeskModeEnabled && project.audience && <p className="small muted" style={{ margin: '0 0 12px' }}>For: {project.audience}</p>}
-            <div className="row">
-              <button className="btn" onClick={actions.requestHint} disabled={state.isGeneratingHint || !entry} data-testid="give_hint_button">
-                <Icon name="lightbulb" size={18} /> {state.isGeneratingHint ? 'Thinking…' : 'Give me a hint'}
-              </button>
-              <button className="btn outlined" onClick={actions.tryAnotherPrompt} disabled={state.isGeneratingPrompt} data-testid="try_another_button">
-                <Icon name="refresh" size={18} /> Try another
-              </button>
-              <button
-                className={`btn ${entry?.isCompleted ? 'outlined' : 'filled'}`}
-                onClick={() => actions.markDone(!entry?.isCompleted)}
-                disabled={!entry}
-                data-testid="done_today_button"
-              >
-                <Icon name="check" size={18} /> {entry?.isCompleted ? 'Mark not done' : 'Done for today'}
-              </button>
-            </div>
+            {!isPhone && <PromptActions />}
             {entry && entry.hints.length > 0 && (
               <div className="hints" data-testid="hints_box">
                 <span className="eyebrow">Writing hints</span>
@@ -179,18 +185,97 @@ export function TodayScreen({ onOpenScreenSaver }: { onOpenScreenSaver: () => vo
           <DraftDrawer />
         </div>
 
-        {showCards && (
-          <aside className="stack" aria-label="Desk cards">
-            {project.showTimerCard && <FocusTimerCard />}
-            {(project.showSparksCard || project.showRhythmCard) && <CompanionCard />}
-            {project.showDateTimeCard && <DateTimeCard />}
-            {project.showWeatherCard && <WeatherCard />}
-          </aside>
-        )}
+        {showCards &&
+          (isPhone ? (
+            <DeskTabs project={project} />
+          ) : (
+            <aside className="stack" aria-label="Desk cards">
+              {project.showTimerCard && <FocusTimerCard />}
+              {(project.showSparksCard || project.showRhythmCard) && <ProactiveSurface kind="desk" />}
+              {project.showDateTimeCard && <DateTimeCard />}
+              {project.showWeatherCard && <WeatherCard />}
+            </aside>
+          ))}
       </div>
+
+      {isPhone && (
+        <div className="action-bar" role="toolbar" aria-label="Today's page">
+          <PromptActions compact />
+        </div>
+      )}
+
+      <Dialog open={moreOpen} onClose={() => setMoreOpen(false)} labelledBy="more-title">
+        <h2 id="more-title">Desk options</h2>
+        <div className="more-grid" onClick={() => setMoreOpen(false)}>
+          {deskOptions}
+        </div>
+      </Dialog>
 
       <CustomizeDialog open={customizeOpen} onClose={() => setCustomizeOpen(false)} project={project} />
     </div>
+  );
+}
+
+function PromptActions({ compact = false }: { compact?: boolean }) {
+  const { state, actions } = useStore();
+  const entry = state.todayEntry;
+  return (
+    <div className="row prompt-actions">
+      <button className="btn" onClick={actions.requestHint} disabled={state.isGeneratingHint || !entry} data-testid="give_hint_button">
+        <Icon name="lightbulb" size={18} /> {state.isGeneratingHint ? 'Thinking…' : compact ? 'Hint' : 'Give me a hint'}
+      </button>
+      <button className="btn outlined" onClick={actions.tryAnotherPrompt} disabled={state.isGeneratingPrompt} data-testid="try_another_button">
+        <Icon name="refresh" size={18} /> {compact ? 'Another' : 'Try another'}
+      </button>
+      <button className={`btn ${entry?.isCompleted ? 'outlined' : 'filled'}`} onClick={() => actions.markDone(!entry?.isCompleted)} disabled={!entry} data-testid="done_today_button">
+        <Icon name="check" size={18} /> {entry?.isCompleted ? (compact ? 'Undo done' : 'Mark not done') : compact ? 'Done' : 'Done for today'}
+      </button>
+    </div>
+  );
+}
+
+type DeskTab = 'desk' | 'timer' | 'time' | 'weather';
+const TAB_KEY = 'jc-desk-tab';
+
+/** Phone: desk cards as tabs instead of one long scroll. The proactive desk is the default tab. */
+function DeskTabs({ project }: { project: JournalProject }) {
+  const tabs = (
+    [
+      { value: 'desk', label: 'Desk', show: project.showSparksCard || project.showRhythmCard },
+      { value: 'timer', label: 'Timer', show: project.showTimerCard },
+      { value: 'time', label: 'Time', show: project.showDateTimeCard },
+      { value: 'weather', label: 'Weather', show: project.showWeatherCard },
+    ] as { value: DeskTab; label: string; show: boolean }[]
+  ).filter((t) => t.show);
+  const [tab, setTab] = useState<DeskTab>(() => {
+    try {
+      return (localStorage.getItem(TAB_KEY) as DeskTab | null) ?? 'desk';
+    } catch {
+      return 'desk';
+    }
+  });
+  const current = tabs.find((t) => t.value === tab)?.value ?? tabs[0]?.value;
+  if (!current) return null;
+  const choose = (t: DeskTab) => {
+    setTab(t);
+    try {
+      localStorage.setItem(TAB_KEY, t);
+    } catch {
+      /* storage blocked */
+    }
+  };
+  return (
+    <section className="stack" aria-label="Desk cards">
+      {tabs.length > 1 && (
+        <div className="desk-tabs">
+          <Segmented<DeskTab> label="Desk cards" value={current} onChange={choose} options={tabs.map(({ value, label }) => ({ value, label }))} />
+        </div>
+      )}
+      {current === 'desk' && <ProactiveSurface kind="desk" />}
+      {current === 'timer' && <FocusTimerCard />}
+      {current === 'time' && <DateTimeCard />}
+      {current === 'weather' && <WeatherCard />}
+    </section>
   );
 }
 
@@ -212,8 +297,12 @@ function DraftDrawer() {
     }
   }, [entryKey, hasDraft]);
 
+  // Open + focus only for a *new* request (e.g. "Use starter"), never on remount — that would pop
+  // the on-screen keyboard every time the user comes back to Today.
+  const seenNonce = useRef(state.draftOpenNonce);
   useEffect(() => {
-    if (state.draftOpenNonce > 0) {
+    if (state.draftOpenNonce !== seenNonce.current) {
+      seenNonce.current = state.draftOpenNonce;
       setOpen(true);
       requestAnimationFrame(() => ref.current?.focus());
     }
@@ -243,7 +332,14 @@ function DraftDrawer() {
             data-testid="digital_draft_input"
             value={state.draftText}
             placeholder="Optional: sketch an answer or key phrases here (never required for paper mode)"
+            autoCapitalize="sentences"
             onChange={(e) => actions.onDraftChanged(e.target.value)}
+            onFocus={(e) => {
+              actions.setDraftFocused(true);
+              const el = e.currentTarget;
+              setTimeout(() => el.scrollIntoView({ block: 'center', behavior: 'smooth' }), 250);
+            }}
+            onBlur={() => actions.setDraftFocused(false)}
           />
           <div className="spread small muted">
             <span className="mono">
@@ -268,7 +364,7 @@ function DraftDrawer() {
             <div className="suggestion" data-testid="editable_suggestion_card">
               <div className="spread">
                 <span className="eyebrow">{s.kind === 'HELP_START' ? 'Editable opening suggestion' : 'Editable tightened draft'}</span>
-                <span className="badge">{s.usedAi ? 'On-device AI' : 'Built-in'}</span>
+                <span className="badge">{s.usedAi ? 'AI' : 'Built-in'}</span>
               </div>
               <p className="hint">Edit freely below. Your draft only changes when you accept.</p>
               <textarea className="input" rows={4} value={state.editableSuggestion} onChange={(e) => actions.setEditableSuggestion(e.target.value)} aria-label="Suggestion text" />

@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { SCREEN_SAVER_LABELS, THEME_LABELS, type AppThemeMode, type ScreenSaverMode } from '../../core/models';
 import type { ExportBundle } from '../../core/repository';
-import { localDateIso } from '../../core/time';
+import { beginOpenRouterOAuth, listModels, type ModelOption } from '../../core/ai/openRouterClient';
 import { useInstallPrompt } from '../../state/install';
 import { useStore } from '../../state/store';
 import { Dialog, Segmented, Spinner, Switch } from '../controls';
 import { Icon } from '../icons';
 import { WeatherCard } from '../deskCards';
+import { ProactiveSurface } from '../ProactiveSurface';
 
 export function SettingsScreen() {
   const { state, actions } = useStore();
@@ -18,6 +19,7 @@ export function SettingsScreen() {
       <div className="page-head" style={{ marginBottom: 0 }}>
         <h1>Settings</h1>
       </div>
+      <ProactiveSurface kind="context" />
 
       <InstallCard />
 
@@ -58,8 +60,21 @@ export function SettingsScreen() {
           onChange={(v) => set({ privacyVeilEnabled: v })}
           testId="setting_privacy_veil"
         />
+        <div className="field" style={{ marginTop: 10 }}>
+          <span className="label">Proactive desk</span>
+          <Segmented<'RICH' | 'CALM'>
+            label="Proactive desk density"
+            value={prefs.proactiveDensity}
+            onChange={(v) => set({ proactiveDensity: v })}
+            options={[
+              { value: 'RICH', label: 'Rich — show everything relevant' },
+              { value: 'CALM', label: 'Calm — just the essentials' },
+            ]}
+          />
+          <span className="hint">The desk shows what fits what you're doing right now: arriving, writing, on a break, done, reviewing and so on.</span>
+        </div>
         <p className="hint" style={{ marginBottom: 0 }}>
-          On-device only: briefs, drafts, and history live in this browser's private storage, are never sent anywhere, and there are zero analytics.
+          Briefs, drafts, and history live in this browser's private storage. Nothing leaves the device unless you turn on AI below, and there are zero analytics.
         </p>
       </section>
 
@@ -108,52 +123,208 @@ export function SettingsScreen() {
   );
 }
 
+const RECOMMENDED_MODELS = [
+  { id: 'anthropic/claude-haiku-5.5', note: 'Default · fast, inexpensive' },
+  { id: 'google/gemini-3.1-flash-lite', note: 'Very inexpensive' },
+  { id: 'mistralai/ministral-8b-2512', note: 'Small, low cost' },
+];
+
 function AiCard() {
   const { state, actions } = useStore();
   const s = state.ai;
-  let text: string;
-  switch (s.kind) {
-    case 'checking':
-      text = 'Checking for an on-device language model…';
-      break;
-    case 'available':
-      text = 'Ready: an on-device model is available in this browser. Prompts, hints and draft help are generated locally—nothing leaves your device.';
-      break;
-    case 'downloadable':
-      text = s.isDownloading
-        ? `Downloading the on-device model${s.progress ? ` (${Math.round(s.progress * 100)}%)` : ''}…`
-        : 'This browser supports an on-device model and can download it now (a one-time download of a few GB).';
-      break;
-    case 'unavailable':
-      text = s.reason;
-      break;
-    case 'error':
-      text = `On-device AI error: ${s.message}. Built-in templates remain active.`;
-      break;
-  }
+  const cfg = state.aiSettings;
+  const [manualKey, setManualKey] = useState('');
+  const [consentOpen, setConsentOpen] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<string | null>(null);
+  const [models, setModels] = useState<ModelOption[] | null>(null);
+  const [modelError, setModelError] = useState<string | null>(null);
+  const [filter, setFilter] = useState('');
+
+  const connected = !!cfg.apiKey;
+  const enabled = connected && !!cfg.consentedAt;
+  const statusText =
+    s.kind === 'checking'
+      ? 'Checking OpenRouter…'
+      : s.kind === 'available'
+        ? `On · ${cfg.model}`
+        : s.kind === 'error'
+          ? s.message
+          : s.reason;
+
+  const loadModels = async () => {
+    setModelError(null);
+    try {
+      setModels(await listModels());
+    } catch (e) {
+      setModelError((e as Error).message);
+    }
+  };
+  const shown = models?.filter((m) => !filter || m.id.toLowerCase().includes(filter.toLowerCase()) || m.name.toLowerCase().includes(filter.toLowerCase())).slice(0, 60);
+
   return (
     <section className="card">
       <div className="spread">
-        <h2>On-Device AI</h2>
-        <span className={`badge ${s.kind === 'available' ? '' : 'warn'}`}>{s.kind === 'available' ? 'On-device' : 'Templates'}</span>
+        <h2>AI (OpenRouter)</h2>
+        <span className={`badge ${s.kind === 'available' ? '' : 'warn'}`}>{s.kind === 'available' ? 'On' : 'Built-in prompts'}</span>
       </div>
       <p className="small" data-testid="ai_status_text">
-        {text}
+        {statusText}
       </p>
       <p className="hint">
-        Uses the browser's built-in Prompt API where offered (e.g. Chrome or Edge on desktop with a capable GPU). Everywhere else—Safari, Firefox, iOS and most
-        phones—the full built-in prompt engine runs instead, completely offline.
+        AI-written prompts, hints, draft help and desk cues come from the model you choose on OpenRouter, using your own OpenRouter account. Without it, the
+        built-in prompt engine runs fully offline.
       </p>
-      <div className="row">
-        {s.kind === 'downloadable' && !s.isDownloading && (
-          <button className="btn filled sm" onClick={actions.downloadAi}>
-            <Icon name="download" size={16} /> Download on-device model
+
+      {!connected && (
+        <div className="stack" style={{ gap: 10 }}>
+          <div className="row">
+            <button className="btn filled sm" onClick={() => beginOpenRouterOAuth()} data-testid="connect_openrouter">
+              Connect OpenRouter
+            </button>
+          </div>
+          <details className="small">
+            <summary className="muted" style={{ cursor: 'pointer' }}>
+              Or paste an API key
+            </summary>
+            <form
+              className="row"
+              style={{ marginTop: 8 }}
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!manualKey.trim()) return;
+                await actions.updateAiSettings({ apiKey: manualKey.trim(), connectedVia: 'manual' });
+                setManualKey('');
+                setConsentOpen(true);
+              }}
+            >
+              <input
+                className="input"
+                style={{ flex: '1 1 220px' }}
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="sk-or-…"
+                aria-label="OpenRouter API key"
+                value={manualKey}
+                onChange={(e) => setManualKey(e.target.value)}
+              />
+              <button className="btn sm" type="submit" disabled={!manualKey.trim()}>
+                Save key
+              </button>
+            </form>
+            <p className="hint">Stored only in this browser. Never included in backups.</p>
+          </details>
+        </div>
+      )}
+
+      {connected && !enabled && (
+        <div className="card primary-soft" style={{ padding: 14, marginTop: 4 }}>
+          <b>One step left</b>
+          <p className="small" style={{ margin: '4px 0 10px' }}>
+            Review what is sent to OpenRouter, then turn AI on.
+          </p>
+          <div className="row">
+            <button className="btn filled sm" onClick={() => setConsentOpen(true)} data-testid="review_consent">
+              Review & turn on
+            </button>
+            <button className="btn text sm" onClick={() => actions.updateAiSettings({ apiKey: null, consentedAt: null, connectedVia: null })}>
+              Disconnect
+            </button>
+          </div>
+        </div>
+      )}
+
+      {enabled && (
+        <div className="stack" style={{ gap: 10 }}>
+          <div className="field">
+            <span className="label">Model</span>
+            <div className="row">
+              {RECOMMENDED_MODELS.map((m) => (
+                <button key={m.id} className="chip" aria-pressed={cfg.model === m.id} title={m.note} onClick={() => actions.updateAiSettings({ model: m.id })}>
+                  {m.id.split('/')[1]}
+                </button>
+              ))}
+              {!models && (
+                <button className="btn text sm" onClick={loadModels}>
+                  All models…
+                </button>
+              )}
+            </div>
+            {modelError && <span className="hint" style={{ color: 'var(--accent)' }}>{modelError}</span>}
+            {models && (
+              <>
+                <input className="input" placeholder="Filter models" aria-label="Filter models" value={filter} onChange={(e) => setFilter(e.target.value)} enterKeyHint="search" />
+                <select className="input" aria-label="Choose a model" value={cfg.model} onChange={(e) => actions.updateAiSettings({ model: e.target.value })} size={6}>
+                  {shown?.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                      {m.promptPricePerM != null ? ` · $${m.promptPricePerM.toFixed(2)}/$${(m.completionPricePerM ?? 0).toFixed(2)} per M tokens` : ''}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
+          </div>
+          <div className="row">
+            <button
+              className="btn sm"
+              disabled={testing}
+              onClick={async () => {
+                setTesting(true);
+                setTestResult(null);
+                const r = await actions.repo.ai.testConnection();
+                setTestResult(r.message);
+                setTesting(false);
+                actions.checkAi();
+              }}
+            >
+              {testing ? <Spinner /> : <Icon name="refresh" size={16} />} Test
+            </button>
+            <button className="btn text sm" onClick={() => setConsentOpen(true)}>
+              What's sent
+            </button>
+            <button className="btn text sm danger" onClick={() => actions.updateAiSettings({ apiKey: null, consentedAt: null, connectedVia: null })} data-testid="disconnect_openrouter">
+              Disconnect
+            </button>
+          </div>
+          {testResult && <p className="small" style={{ margin: 0 }} role="status">{testResult}</p>}
+        </div>
+      )}
+
+      <Dialog open={consentOpen} onClose={() => setConsentOpen(false)} labelledBy="consent-title">
+        <h2 id="consent-title">What AI sends to OpenRouter</h2>
+        <p className="small muted">Only when the app asks the model for something. Everything else stays on this device.</p>
+        <ul className="small" style={{ paddingLeft: 18 }}>
+          <li>Today's question and recent prompts (to avoid repeats)</li>
+          <li>Project goal, themes, tone and boundaries</li>
+          <li>Your brief, when you tap Propose in the project wizard</li>
+          <li>Your digital note, only when you tap Help me start or Tighten</li>
+          <li>Audience and past notes, only if enabled for the project, and never in Discreet mode</li>
+          <li>Time and weather, only if you turned them on for prompts</li>
+        </ul>
+        <p className="small muted">
+          Requests ask OpenRouter to use only providers that don't store or train on data, and carry no name, email or device identifiers. Paper pages are
+          never captured.
+        </p>
+        <div className="sheet-actions">
+          <button className="btn text" onClick={() => setConsentOpen(false)}>
+            {enabled ? 'Close' : 'Not now'}
           </button>
-        )}
-        <button className="btn sm" onClick={actions.checkAi} disabled={s.kind === 'checking'}>
-          {s.kind === 'checking' ? <Spinner /> : <Icon name="refresh" size={16} />} Re-check
-        </button>
-      </div>
+          {!enabled && (
+            <button
+              className="btn filled"
+              data-testid="accept_consent"
+              onClick={async () => {
+                await actions.updateAiSettings({ consentedAt: Date.now() });
+                setConsentOpen(false);
+              }}
+            >
+              Turn on AI
+            </button>
+          )}
+        </div>
+      </Dialog>
     </section>
   );
 }
@@ -168,16 +339,7 @@ function BackupCard() {
     navigator.storage?.persisted?.().then(setPersisted).catch(() => setPersisted(null));
   }, []);
 
-  const doExport = async () => {
-    const bundle = await actions.repo.exportAll();
-    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `journal-companion-backup-${localDateIso()}.json`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
-  };
+  const doExport = actions.exportBackup;
 
   const onFile = async (f: File | undefined) => {
     if (!f) return;
@@ -196,7 +358,7 @@ function BackupCard() {
     <section className="card">
       <h2>Backup & Device Transfer</h2>
       <p className="small muted">
-        Your journal lives only in this browser. Export a backup file to keep a copy or move to another device—nothing is uploaded anywhere.
+        Your journal lives only in this browser. Export a backup file to keep a copy or move to another device. Backups never include your OpenRouter key.
       </p>
       <div className="row">
         <button className="btn sm" onClick={doExport}>

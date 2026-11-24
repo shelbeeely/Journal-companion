@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { JournalAiOrchestrator } from '../core/ai/orchestrator';
-import type { AiGenerationResult, OnDeviceAiClient } from '../core/ai/onDeviceAi';
+import type { AiClient, AiGenerationResult } from '../core/ai/aiClient';
 import { openJournalDb } from '../core/db';
 import { buildCompanionSurface, buildDeskSnapshot } from '../core/deskContext';
 import { generateFallbackTighten } from '../core/fallbackEngine';
@@ -12,31 +12,29 @@ import { summarizePrecipitationWindow } from '../core/weather';
 const SPENCER_BRIEF =
   "3.25\" x 4.5\" Mini journal. How can I fill a page a day for my friend spencer while he's in the psych hospital. I want to tell him all tje thingi like about him, why i appreciate his friends, and that i care but i don'twant to seem like I'm being to much or clingy or anything like that. He's my roommate and we are close enough that we literally share a room and I've missed his presence this week";
 
-class UnavailableFakeAi implements OnDeviceAiClient {
+class UnavailableFakeAi implements AiClient {
   captured: string[] = [];
   async checkAvailability() {
     return { kind: 'unavailable' as const, reason: 'Test device' };
   }
-  async downloadModel() {}
   async generate(_s: string, prompt: string): Promise<AiGenerationResult> {
     this.captured.push(prompt);
     return { kind: 'unavailable', reason: 'Test unavailable' };
   }
 }
 
-class ScriptedAi implements OnDeviceAiClient {
+class ScriptedAi implements AiClient {
   constructor(private readonly reply: string) {}
   async checkAvailability() {
     return { kind: 'available' as const };
   }
-  async downloadModel() {}
   async generate(): Promise<AiGenerationResult> {
     return { kind: 'success', text: this.reply };
   }
 }
 
 let dbCounter = 0;
-async function buildRepo(opts: { ai?: OnDeviceAiClient; dbName?: string; clock?: { date: string; ms: number } } = {}) {
+async function buildRepo(opts: { ai?: AiClient; dbName?: string; clock?: { date: string; ms: number } } = {}) {
   const clock = opts.clock ?? { date: '2026-11-15', ms: 1_763_234_836_000 };
   const name = opts.dbName ?? `test-${++dbCounter}-${Math.random()}`;
   const db = await openJournalDb(name);

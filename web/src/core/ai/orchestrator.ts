@@ -11,7 +11,7 @@ import {
   type WizardSeedInputs,
 } from '../models';
 import { parseDeskCues, validateDraftSuggestion, validateHintResponse, validateProjectProposal, validatePromptResponse } from '../validator';
-import type { AiGenerationResult, OnDeviceAiClient } from './onDeviceAi';
+import type { AiClient, AiGenerationResult, ResponseSchema } from './aiClient';
 
 export interface GeneratedPromptResult {
   promptText: string;
@@ -36,23 +36,80 @@ export interface DeskCues {
 
 const nonBlank = (s: string | null | undefined) => (s && s.trim() ? s : null);
 
+const str = { type: 'string' } as const;
+const nullableStr = { type: ['string', 'null'] } as const;
+const strArr = { type: 'array', items: str } as const;
+const obj = (properties: Record<string, unknown>): Record<string, unknown> => ({
+  type: 'object',
+  properties,
+  required: Object.keys(properties),
+  additionalProperties: false,
+});
+
+/** Structured-output schemas (enforced where the model supports it; the validator always re-checks). */
+export const SCHEMAS = {
+  proposal: {
+    name: 'project_proposal',
+    schema: obj({
+      title: str,
+      writingGoal: str,
+      audience: nullableStr,
+      cadence: { type: ['string', 'null'], enum: ['daily', 'weekly', 'whenever', null] },
+      pageSizeLabel: nullableStr,
+      entryLengthLabel: nullableStr,
+      themes: strArr,
+      tonePreferences: nullableStr,
+      boundaries: nullableStr,
+      firstPrompt: str,
+      firstHints: strArr,
+    }),
+  },
+  prompt: { name: 'journal_prompt', schema: obj({ prompt: str, topicTag: str, hints: strArr }) },
+  hint: { name: 'hint', schema: obj({ hint: str }) },
+  suggestion: { name: 'suggestion', schema: obj({ suggestion: str }) },
+  deskCues: { name: 'desk_cues', schema: obj({ starterLine: str, recallCue: str, ambientCue: str, briefDigest: str }) },
+} satisfies Record<string, ResponseSchema>;
+
 /**
- * Coordinates the on-device model with strict privacy scoping, structured output validation,
+ * Coordinates the AI model with strict privacy scoping, structured output validation,
  * and complete fallback to built-in templates.
  */
 export class JournalAiOrchestrator {
-  constructor(private readonly ai: OnDeviceAiClient) {}
+  /**
+   * @param isDiscreet While true, the original brief, audience and past notes are never sent to the
+   *   model (only the prompt, goal and tone). Explicit brief analysis in the project wizard is the one
+   *   exception, because the brief is what the user asked to analyze.
+   */
+  constructor(
+    private readonly ai: AiClient,
+    private readonly isDiscreet: () => boolean = () => false,
+  ) {}
 
   checkAvailability() {
     return this.ai.checkAvailability();
   }
 
-  downloadModel(onState: Parameters<OnDeviceAiClient['downloadModel']>[0]) {
-    return this.ai.downloadModel(onState);
+  /** Sends a tiny, content-free request to confirm the key and model work. */
+  async testConnection(): Promise<{ ok: boolean; message: string }> {
+    const res = await this.ai.generate('Return ONLY JSON: {"hint": "..."}.', 'Give one short, generic journaling sentence starter.', {
+      temperature: 0.2,
+      maxTokens: 60,
+      schema: SCHEMAS.hint,
+    });
+    if (res.kind === 'success') {
+      const hint = validateHintResponse(res.text);
+      return hint ? { ok: true, message: `Working. Sample: “${hint}”` } : { ok: false, message: 'The model replied, but not in the expected format. Try another model.' };
+    }
+    return { ok: false, message: res.kind === 'unavailable' ? res.reason : res.kind === 'busy' ? res.message : res.kind === 'failure' ? res.message : 'Cancelled.' };
+  }
+
+  /** Drop any cached availability (after connecting, disconnecting or switching model). */
+  resetAvailability() {
+    (this.ai as { invalidate?: () => void }).invalidate?.();
   }
 
   async proposeProjectSetup(brief: string, wizardInputs?: WizardSeedInputs | null): Promise<ProposedProjectSetup> {
-    const system = `You configure private journaling projects on-device. Return ONLY valid JSON with no markdown or commentary.
+    const system = `You configure private journaling projects. Return ONLY valid JSON with no markdown or commentary.
 Rules:
 - Leave unknown fields null (never invent audience, cadence, or pageSizeLabel if not mentioned).
 - Keep title short, calm, and discreet (never put medical/hospital/sensitive terms or private names in title).
@@ -81,10 +138,10 @@ firstPrompt (string), firstHints (array of 1-2 short hints: a sentence starter o
 ${brief}
 ${wizardSection}`;
 
-    const result = await this.ai.generate(system, user, 0.25);
+    const result = await this.ai.generate(system, user, { temperature: 0.25, maxTokens: 600, schema: SCHEMAS.proposal });
     if (result.kind === 'success') {
       const v = validateProjectProposal(result.text);
-      if (!v) return Fallback.proposeSetupFromBrief(brief, 'On-device AI output failed validation; applied structured template proposal.', wizardInputs);
+      if (!v) return Fallback.proposeSetupFromBrief(brief, 'AI output failed validation; applied structured template proposal.', wizardInputs);
       if (!wizardInputs) return v;
       return {
         ...v,
@@ -119,7 +176,8 @@ Rules:
 - Never ask the user to re-explain sensitive background. Never guess what was written on paper.`;
 
     const lines: string[] = ['## Project Settings', `Goal: ${project.writingGoal}`];
-    if (project.audience) lines.push(`Audience: ${project.audience}`);
+    const discreet = this.isDiscreet();
+    if (project.audience && !discreet) lines.push(`Audience: ${project.audience}`);
     if (project.cadence) lines.push(`Cadence: ${CADENCE_LABELS[project.cadence]}`);
     const est = estimatedWordsPerPage(project);
     if (est) lines.push(`Target page size: ${project.pageSizeLabel} (~${est} words, advisory only)`);
@@ -131,7 +189,7 @@ Rules:
       recentHistory.slice(0, 8).forEach((h) => lines.push(`- [${h.topicTag}] ${h.promptText}`));
     }
     if (previousTopicToAvoid) lines.push(`Avoid topic: ${previousTopicToAvoid}`);
-    if (project.includePastAnswersInPrompts && optedInPastAnswers.length) {
+    if (project.includePastAnswersInPrompts && optedInPastAnswers.length && !discreet) {
       lines.push('', '## Opted-In Previous Typed Notes');
       optedInPastAnswers.slice(0, 3).forEach((a) => lines.push(`- ${a.slice(0, 180)}`));
     }
@@ -141,7 +199,7 @@ Rules:
       if (ctx.weatherSummary) lines.push(`Weather: ${ctx.weatherSummary}${ctx.weatherFetchedTimestamp ? ` (fetched ${ctx.weatherFetchedTimestamp})` : ''}`);
     }
 
-    const result = await this.ai.generate(system, lines.join('\n'), 0.65);
+    const result = await this.ai.generate(system, lines.join('\n'), { temperature: 0.65, maxTokens: 300, schema: SCHEMAS.prompt });
     const fallback = (note: string | null): GeneratedPromptResult => {
       const f = Fallback.generateFallbackPrompt(project, recentPrompts, recentTopics, ctx, previousTopicToAvoid);
       return { promptText: f.question, topicTag: f.topicTag, hints: f.hints, usedAi: false, statusNote: note };
@@ -167,7 +225,7 @@ Respect tone and boundaries. Never invent memories.`;
       lines.push('Already shown hints (give a different angle):');
       existingHints.forEach((h) => lines.push(`- ${h}`));
     }
-    const result = await this.ai.generate(system, lines.join('\n'), 0.5);
+    const result = await this.ai.generate(system, lines.join('\n'), { temperature: 0.5, maxTokens: 160, schema: SCHEMAS.hint });
     if (result.kind === 'success') {
       const v = validateHintResponse(result.text);
       if (v && !existingHints.includes(v)) return { hintText: v, usedAi: true, statusNote: null };
@@ -186,7 +244,7 @@ Leave room for the user to finish the thought. Never invent fake memories.`;
     const lines = [`Prompt: ${currentPrompt}`];
     if (project.tonePreferences) lines.push(`Tone: ${project.tonePreferences}`);
     if (project.boundaries) lines.push(`Boundaries: ${project.boundaries}`);
-    const result = await this.ai.generate(system, lines.join('\n'), 0.5);
+    const result = await this.ai.generate(system, lines.join('\n'), { temperature: 0.5, maxTokens: 200, schema: SCHEMAS.suggestion });
     if (result.kind === 'success') {
       const t = validateDraftSuggestion(result.text);
       if (t) return { kind: 'HELP_START', suggestedText: t, usedAi: true };
@@ -208,7 +266,7 @@ Never invent details not in the draft. ${targetNote}`;
     const lines = [`Prompt: ${currentPrompt}`];
     if (project.tonePreferences) lines.push(`Tone: ${project.tonePreferences}`);
     lines.push('## User Draft', currentDraft);
-    const result = await this.ai.generate(system, lines.join('\n'), 0.3);
+    const result = await this.ai.generate(system, lines.join('\n'), { temperature: 0.3, maxTokens: 500, schema: SCHEMAS.suggestion });
     if (result.kind === 'success') {
       const t = validateDraftSuggestion(result.text);
       if (t) return { kind: 'TIGHTEN_DRAFT', suggestedText: t, usedAi: true };
@@ -225,7 +283,7 @@ Never invent details not in the draft. ${targetNote}`;
   async synthesizeDeskCues(snapshot: DeskContextSnapshot): Promise<DeskCues | null> {
     const availability = await this.ai.checkAvailability().catch(() => null);
     if (availability?.kind !== 'available') return null;
-    const system = `You power an on-device desk companion surface for physical notebook writers.
+    const system = `You write the short cues on a proactive desk companion surface for physical notebook writers.
 Return ONLY JSON with optional short fields:
 {"starterLine":"...", "recallCue":"...", "ambientCue":"...", "briefDigest":"..."}
 Rules:
@@ -233,7 +291,7 @@ Rules:
 - Respect all boundaries and tone preferences.
 - Never invent memories or fake weather numbers.`;
     const lines = [`Question: ${snapshot.promptText}`, `Goal: ${snapshot.writingGoal}`];
-    if (!snapshot.discreetMode) {
+    if (!snapshot.discreetMode && !this.isDiscreet()) {
       if (snapshot.audience) lines.push(`Audience: ${snapshot.audience}`);
       if (snapshot.tonePreferences) lines.push(`Tone: ${snapshot.tonePreferences}`);
       if (snapshot.boundaries) lines.push(`Boundaries: ${snapshot.boundaries}`);
@@ -244,21 +302,19 @@ Rules:
     lines.push(`Window: ${snapshot.writingWindowCue} (${snapshot.formattedTime})`);
     if (snapshot.weatherSummary) lines.push(`Weather: ${snapshot.weatherSummary}`);
     if (snapshot.daylightSummary) lines.push(`Daylight: ${snapshot.daylightSummary}`);
-    const res = await this.ai.generate(system, lines.join('\n'), 0.35);
+    const res = await this.ai.generate(system, lines.join('\n'), { temperature: 0.35, maxTokens: 260, schema: SCHEMAS.deskCues });
     return res.kind === 'success' ? parseDeskCues(res.text) : null;
   }
 }
 
 function noteFor(result: Exclude<AiGenerationResult, { kind: 'success' }>, ctx: 'template' | 'prompt'): string {
   switch (result.kind) {
-    case 'needsDownload':
-      return result.message;
     case 'unavailable':
       return result.reason;
     case 'busy':
       return result.message;
     case 'failure':
-      return ctx === 'template' ? `On-device AI unavailable for this request (${result.message}); using built-in template.` : result.message;
+      return ctx === 'template' ? `AI unavailable for this request (${result.message}); using built-in template.` : result.message;
     case 'cancelled':
       return ctx === 'template' ? 'AI analysis cancelled; template ready.' : 'Cancelled; kept local prompt.';
   }

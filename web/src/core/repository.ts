@@ -1,4 +1,5 @@
 import type { JournalAiOrchestrator } from './ai/orchestrator';
+import { DEFAULT_AI_SETTINGS, type AiSettings, type AiSettingsSource } from './ai/openRouterClient';
 import { withoutId, type JournalDatabase } from './db';
 import {
   DEFAULT_PREFERENCES,
@@ -33,7 +34,7 @@ export interface ExportBundle {
 
 type Listener = () => void;
 
-export class JournalRepository {
+export class JournalRepository implements AiSettingsSource {
   private listeners = new Set<Listener>();
   private channel: BroadcastChannel | null = null;
 
@@ -85,14 +86,34 @@ export class JournalRepository {
     return all.sort((a, b) => (a.dateIso < b.dateIso ? 1 : a.dateIso > b.dateIso ? -1 : 0));
   }
 
+  /** Per-project page counts and last activity, for the Projects overview and backup nudges. */
+  async getActivitySummary(): Promise<Record<number, { lastDateIso: string | null; completed: number; total: number }>> {
+    const out: Record<number, { lastDateIso: string | null; completed: number; total: number }> = {};
+    for (const e of await this.db.getAll('entries')) {
+      const a = (out[e.projectId] ??= { lastDateIso: null, completed: 0, total: 0 });
+      a.total++;
+      if (e.isCompleted) a.completed++;
+      if (!a.lastDateIso || e.dateIso > a.lastDateIso) a.lastDateIso = e.dateIso;
+    }
+    return out;
+  }
+
   async getPromptHistory(projectId: number): Promise<PromptHistoryItem[]> {
     const all = await this.db.getAllFromIndex('history', 'byProject', projectId);
     return all.sort((a, b) => b.createdAtEpochMs - a.createdAtEpochMs || b.id - a.id);
   }
 
+  private lastPrefs: DeskUiPreferences = DEFAULT_PREFERENCES;
+
   async getPreferences(): Promise<DeskUiPreferences> {
     const stored = (await this.db.get('kv', 'preferences')) as Partial<DeskUiPreferences> | undefined;
-    return { ...DEFAULT_PREFERENCES, ...(stored ?? {}) };
+    this.lastPrefs = { ...DEFAULT_PREFERENCES, ...(stored ?? {}) };
+    return this.lastPrefs;
+  }
+
+  /** Synchronous view of the last-read Discreet setting (the AI layer uses it to scope what is sent). */
+  isDiscreet(): boolean {
+    return this.lastPrefs.discreetDeskModeEnabled;
   }
 
   async getCachedWeather(): Promise<WeatherSnapshot | null> {
@@ -102,6 +123,38 @@ export class JournalRepository {
   async getFocusBlocksToday(dateIso = this.todayIso()): Promise<number> {
     const v = (await this.db.get('kv', 'focusBlocks')) as { date: string; count: number } | undefined;
     return v?.date === dateIso ? v.count : 0;
+  }
+
+  /* ------------------------------ AI settings ------------------------------ */
+
+  /** The OpenRouter key and model live only in this browser and are never included in exports. */
+  async getAiSettings(): Promise<AiSettings> {
+    const stored = (await this.db.get('kv', 'aiSettings')) as Partial<AiSettings> | undefined;
+    return { ...DEFAULT_AI_SETTINGS, ...(stored ?? {}) };
+  }
+
+  async updateAiSettings(patch: Partial<AiSettings>) {
+    const current = await this.getAiSettings();
+    await this.db.put('kv', { ...current, ...patch }, 'aiSettings');
+    this.changed();
+  }
+
+  /* ------------------------- proactive desk state ------------------------- */
+
+  async getLastBackupAt(): Promise<number | null> {
+    return ((await this.db.get('kv', 'lastBackupAt')) as number | undefined) ?? null;
+  }
+
+  /** Insight ids the user snoozed today; they reappear tomorrow. */
+  async getSnoozedInsights(dateIso = this.todayIso()): Promise<string[]> {
+    const v = (await this.db.get('kv', 'snoozedInsights')) as { date: string; ids: string[] } | undefined;
+    return v?.date === dateIso ? v.ids : [];
+  }
+
+  async snoozeInsight(id: string, dateIso = this.todayIso()) {
+    const ids = await this.getSnoozedInsights(dateIso);
+    if (!ids.includes(id)) await this.db.put('kv', { date: dateIso, ids: [...ids, id] }, 'snoozedInsights');
+    this.changed();
   }
 
   /* --------------------------------- prefs ---------------------------------- */
@@ -347,6 +400,8 @@ export class JournalRepository {
   /* ---------------------------- backup / restore ---------------------------- */
 
   async exportAll(): Promise<ExportBundle> {
+    await this.db.put('kv', this.now(), 'lastBackupAt');
+    this.changed();
     return {
       format: 'journal-companion-export',
       version: 1,

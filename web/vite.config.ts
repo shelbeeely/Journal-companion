@@ -29,6 +29,11 @@ export default defineConfig({
         background_color: '#F3EFE7',
         theme_color: '#285744',
         categories: ['productivity', 'lifestyle'],
+        launch_handler: { client_mode: ['focus-existing', 'auto'] },
+        screenshots: [
+          { src: 'screenshots/today-phone.png', sizes: '1080x2400', type: 'image/png', form_factor: 'narrow', label: 'Today on a phone' },
+          { src: 'screenshots/today-desktop.png', sizes: '2732x1720', type: 'image/png', form_factor: 'wide', label: 'Desk Mode on a laptop' },
+        ],
         icons: [
           { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
           { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
@@ -41,7 +46,8 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,png,svg,ttf,woff2,webmanifest}'],
+        globPatterns: ['**/*.{js,css,html,png,svg,woff2,webmanifest}'],
+        globIgnores: ['screenshots/**'],
         navigateFallback: 'index.html',
         cleanupOutdatedCaches: true,
         // Weather is fetched live and cached by the app itself (with stale labelling), never by the SW.

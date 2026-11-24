@@ -228,7 +228,7 @@ export function CompanionCard() {
           Desk Companion
         </h2>
         <span className="row" style={{ gap: 0 }}>
-          <span className="badge" title={c.usedAi ? 'Cues written on-device' : 'Built-in cues'}>
+          <span className="badge" title={c.usedAi ? 'Cues written by AI' : 'Built-in cues'}>
             {c.ambient.engineBadge}
           </span>
           <button className="icon-btn" aria-label="Refresh companion" onClick={actions.refreshCompanion}>

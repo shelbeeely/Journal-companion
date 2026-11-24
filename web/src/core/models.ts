@@ -192,6 +192,8 @@ export interface DeskUiPreferences {
   screenSaverDimBrightness: boolean;
   /** Minutes of inactivity on Today before the ambient screen saver appears; 0 = never. */
   screenSaverIdleMinutes: number;
+  /** How much the proactive desk surfaces unprompted. */
+  proactiveDensity: 'RICH' | 'CALM';
 }
 
 export const DEFAULT_PREFERENCES: DeskUiPreferences = {
@@ -206,12 +208,12 @@ export const DEFAULT_PREFERENCES: DeskUiPreferences = {
   screenSaverMode: 'FULL_COMPANION',
   screenSaverDimBrightness: true,
   screenSaverIdleMinutes: 0,
+  proactiveDensity: 'RICH',
 };
 
 export type AiAvailabilityState =
   | { kind: 'checking' }
   | { kind: 'available' }
-  | { kind: 'downloadable'; isDownloading: boolean; progress?: number }
   | { kind: 'unavailable'; reason: string }
   | { kind: 'error'; message: string };
 
