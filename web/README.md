@@ -190,7 +190,7 @@ AI-written prompts, hints, draft help and desk cues come from a model you choose
 
 1. Go to *Settings → AI (OpenRouter)* and choose **Connect OpenRouter** (OAuth with PKCE), or paste your own key.
 2. Review the **What gets sent** sheet and choose **Turn on AI**.
-3. Optionally pick a model; the default is `anthropic/claude-haiku-5.5`. Use **Test** to check it works.
+3. Optionally pick a model; the default is the budget model `thinkingmachines/inkling-2-mini`. Use **Test** to check it works.
 
 **What leaves the device when AI is on**, and only when the app asks the model for something:
 - today's question and recent prompts (so new ones don't repeat);

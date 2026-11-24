@@ -131,7 +131,8 @@ export function SettingsScreen() {
 }
 
 const RECOMMENDED_MODELS = [
-  { id: 'anthropic/claude-haiku-5.5', note: 'Default · fast, inexpensive' },
+  { id: 'thinkingmachines/inkling-2-mini', note: 'Default · budget' },
+  { id: 'anthropic/claude-haiku-5.5', note: 'Fast, higher quality' },
   { id: 'google/gemini-3.1-flash-lite', note: 'Very inexpensive' },
   { id: 'mistralai/ministral-8b-2512', note: 'Small, low cost' },
 ];

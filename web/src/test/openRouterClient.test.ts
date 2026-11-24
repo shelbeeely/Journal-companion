@@ -46,9 +46,10 @@ describe('OpenRouterClient', () => {
     expect(h.Authorization).toBe('Bearer sk-or-test-123456');
     expect(h['X-Title']).toBe('Journal Companion');
     expect(h['HTTP-Referer']).toBe('https://app.example');
-    expect(body.model).toBe('anthropic/claude-haiku-5.5');
+    expect(body.model).toBe('thinkingmachines/inkling-2-mini');
     expect(body.provider).toEqual({ data_collection: 'deny' });
     expect(body.response_format.json_schema.name).toBe('hint');
+    expect(body.reasoning).toEqual({ enabled: false }); // short structured tasks: no hidden reasoning
     expect(body.user).toBeUndefined();
     expect(init.credentials).toBe('omit');
   });
@@ -60,11 +61,26 @@ describe('OpenRouterClient', () => {
     }
   });
 
-  it('retries without a schema when a model rejects structured outputs', async () => {
+  it('on 400 retries without the reasoning switch, then without the schema', async () => {
     let n = 0;
-    const { c, calls } = client(connected, () => (n++ === 0 ? reply(400, {}) : reply(200, { choices: [{ message: { content: 'ok text' } }] })));
+    const { c, calls } = client(connected, () => (n++ < 2 ? reply(400, {}) : reply(200, { choices: [{ message: { content: 'ok text' } }] })));
     expect((await c.generate('s', 'p', { schema: { name: 'x', schema: {} } })).kind).toBe('success');
-    expect(calls[1].body.response_format).toBeUndefined();
+    expect(calls[1].body.reasoning).toBeUndefined();
+    expect(calls[1].body.response_format).toBeDefined();
+    expect(calls[2].body.response_format).toBeUndefined();
+    expect(calls).toHaveLength(3);
+  });
+
+  it('retries once with a larger budget when a reasoning model runs out of room', async () => {
+    const empty = { choices: [{ finish_reason: 'length', message: { content: null } }] };
+    let n = 0;
+    const { c, calls } = client(connected, () => (n++ === 0 ? reply(200, empty) : reply(200, { choices: [{ finish_reason: 'stop', message: { content: '{"hint":"x"}' } }] })));
+    expect(await c.generate('s', 'p', { maxTokens: 60 })).toEqual({ kind: 'success', text: '{"hint":"x"}' });
+    expect(calls[1].body.max_tokens).toBe(60 * 4 + 1024);
+    // Never loops: a second empty reply is a failure → templates take over.
+    const { c: c2, calls: calls2 } = client(connected, () => reply(200, empty));
+    expect((await c2.generate('s', 'p')).kind).toBe('failure');
+    expect(calls2).toHaveLength(2);
   });
 
   it('treats network failure as unavailable so templates take over', async () => {
