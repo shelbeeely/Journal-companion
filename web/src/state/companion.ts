@@ -229,20 +229,28 @@ export function useCompanion(d: CompanionDeps) {
 
   // Optional AI interpretation for the top card only, from sources the user allowed.
   const [pendingInterp, setPendingInterp] = useState<Set<string>>(() => new Set());
-  const allowedForAi = useMemo(() => new Set(Object.entries(states).filter(([, s]) => s.shareWithAi).map(([id]) => id)), [states]);
+  // Stable across background syncs: only changes when the user changes what the AI may read.
+  const allowedKey = Object.entries(states)
+    .filter(([, s]) => s.shareWithAi)
+    .map(([id]) => id)
+    .sort()
+    .join(',');
+  const allowedForAi = useMemo(() => new Set(allowedKey ? allowedKey.split(',') : []), [allowedKey]);
+  // A note belongs to one card, its evidence, and the sources shared when it was written.
+  const keyOf = (s: Suggestion) => `${s.key}|${s.evidence.map((e) => e.id).join(',')}|${allowedKey}`;
   const top = visible[0];
-  const interpKey = top ? `${top.key}|${top.evidence.map((e) => e.id).join(',')}` : '';
+  const interpKey = top ? keyOf(top) : '';
   useEffect(() => {
     if (!top || !d.aiEnabled || !allowedForAi.size || interpKey in interpretations) return;
     if ((navigator as { connection?: { saveData?: boolean } }).connection?.saveData) return;
-    let cancelled = false;
     const key = interpKey;
-    setInterpretations((m) => ({ ...m, [key]: null })); // requested once per card+evidence (failures cached)
+    setInterpretations((m) => ({ ...m, [key]: null })); // requested once per key (failures cached)
     setPendingInterp((p) => new Set(p).add(key));
+    // Not cancelled on re-render: the result is stored under its own key, so it can never be shown
+    // for different evidence or sharing settings, and a sync mid-request no longer discards it.
     interpretSuggestion(d.aiClient, top, allowedForAi)
-      .then((r) => {
-        if (!cancelled) setInterpretations((m) => ({ ...m, [key]: r }));
-      })
+      .then((r) => setInterpretations((m) => ({ ...m, [key]: r })))
+      .catch(() => undefined)
       .finally(() =>
         setPendingInterp((p) => {
           const n = new Set(p);
@@ -250,12 +258,8 @@ export function useCompanion(d: CompanionDeps) {
           return n;
         }),
       );
-    return () => {
-      cancelled = true;
-    };
   }, [interpKey, d.aiEnabled, allowedForAi]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const keyOf = (s: Suggestion) => `${s.key}|${s.evidence.map((e) => e.id).join(',')}`;
   const interpretationFor = (s: Suggestion): Interpretation | null => interpretations[keyOf(s)] ?? null;
   /** True while the model is thinking about this card (its note will appear in place). */
   const interpretationPending = (s: Suggestion): boolean => pendingInterp.has(keyOf(s));

@@ -152,13 +152,29 @@ describe('plan_day, resume, reflect, unfinished, resurface', () => {
     expect(s.priority).toBeGreaterThan(55); // weekend boost
   });
 
+  it('does not repeat the resumed project’s draft as an unfinished thought', () => {
+    const side: JournalProject = { ...project, id: 2, title: 'Novel notes' };
+    const journalProject = it_({ id: 'journal:project:2', sourceId: 'journal', kind: 'project', title: 'Novel notes', data: { projectId: 2, lastActivity: '2026-11-18' } });
+    const sameDraft = it_({ id: 'journal:draft:3', sourceId: 'journal', kind: 'thought', title: 'The lighthouse keeper finally opened the door and', startsAt: '2026-11-18', data: { projectId: 2, reasons: ['trails off without an ending'] } });
+    const link = it_({ id: 'share_target:s1', sourceId: 'share_target', kind: 'thought', title: 'The art of the unsent letter', startsAt: '2026-11-25', url: 'https://x' });
+    const journal = { projects: [project, side], entries: [entry(3, '2026-11-18', 'The lighthouse keeper finally opened the door and', false, 2)], todayEntry: null, activeProjectId: 1 };
+    const both = detectMoments(inputs(at(10, 0, 28), [journalProject, sameDraft, link], { journal }));
+    expect(find(both, 'resume')).toBeDefined();
+    expect(find(both, 'unfinished')!.evidence[0].id).toBe('share_target:s1'); // a different thought
+    const onlySame = detectMoments(inputs(at(10, 0, 28), [journalProject, sameDraft], { journal }));
+    expect(find(onlySame, 'unfinished')).toBeUndefined(); // nothing else open → no duplicate card
+  });
+
   it('gathers the day for reflection across sources with a grounded prompt', () => {
     const lunch = it_({ id: 'calendar_google:l', sourceId: 'calendar_google', kind: 'event', title: 'Lunch with Ana', startsAt: iso(at(12)), endsAt: iso(at(13)) });
     const done = it_({ id: 'tasks_google:d', sourceId: 'tasks_google', kind: 'task', title: 'Send invoice', done: true, data: { completedAt: iso(at(11)) } });
     const track = it_({ id: 'music_spotify:t', sourceId: 'music_spotify', kind: 'track', title: 'Song', subtitle: 'Phoebe Bridgers', startsAt: iso(at(17)), data: { artist: 'Phoebe Bridgers' } });
-    const items = [standup, lunch, done, track, dayWeather];
+    const undated = it_({ id: 'habits_habitica:h', sourceId: 'habits_habitica', kind: 'habit', title: 'Stretch', done: true });
+    const items = [standup, lunch, done, undated, track, dayWeather];
     const s = find(detectMoments(inputs(at(21, 30), items)), 'reflect')!;
-    expect(s.sections.timeline!.rows.map((r) => r.text)).toEqual(['Standup', 'Lunch with Ana', 'Done: Send invoice']);
+    // Chronological, undated completions last.
+    expect(s.sections.timeline!.rows.map((r) => r.text)).toEqual(['Standup', 'Done: Send invoice', 'Lunch with Ana', 'Done: Stretch']);
+    expect(s.sections.timeline!.rows.every((r) => !('at' in r))).toBe(true);
     expect(s.sections.extras!.lines[0].text).toContain('Phoebe Bridgers');
     expect(s.sections.prompt).toBe('You had Standup and Lunch with Ana today — which moment do you want to keep?');
     expect(s.priority).toBe(88);
@@ -172,6 +188,13 @@ describe('plan_day, resume, reflect, unfinished, resurface', () => {
     expect(s.key).toBe('unfinished:journal:draft:5');
     expect(s.summary).toBe('2 days ago · trails off without an ending');
     expect(s.priority).toBe(57);
+  });
+
+  it('uses only today’s “on this day” events, never a cached feed from yesterday', () => {
+    const old = it_({ id: 'context_onthisday:2026-11-23:0', sourceId: 'context_onthisday', kind: 'onthisday', title: '1963: yesterday’s event', startsAt: '2026-11-23', allDay: true });
+    expect(find(detectMoments(inputs(at(8, 30), [old])), 'resurface')).toBeUndefined();
+    const fresh = it_({ ...old, id: 'context_onthisday:2026-11-24:0', title: '1859: today’s event', startsAt: '2026-11-24' });
+    expect(find(detectMoments(inputs(at(8, 30), [old, fresh])), 'resurface')!.title).toBe('On this day in history');
   });
 
   it('resurfaces a memory with a highlight', () => {

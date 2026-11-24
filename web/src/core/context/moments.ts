@@ -588,26 +588,28 @@ function reflect(inp: MomentInputs): Suggestion | null {
   const time = tc.part === 'evening' || tc.part === 'late_evening' || (lastEnded && tc.now.getHours() >= 16);
   if ((!tc.awake || !time) && inp.requested !== 'reflect') return null;
   const done = inp.journal.todayEntry?.isCompleted === true;
-  const rows: { time: string; text: string; source: string; kind: string }[] = [];
+  // `at` orders the day chronologically (undated completions last); it's dropped before rendering.
+  const dated: { at: number; time: string; text: string; source: string; kind: string }[] = [];
+  const msOf = (iso?: unknown) => (typeof iso === 'string' ? (t(iso)?.getTime() ?? Infinity) : Infinity);
   const evidence: Evidence[] = [];
   for (const e of today.filter((x) => new Date(x.startsAt!).getTime() < nowMs)) {
-    rows.push({ time: timeOf(e.startsAt), text: e.title, source: label(e.sourceId), kind: 'event' });
+    dated.push({ at: msOf(e.startsAt), time: timeOf(e.startsAt), text: e.title, source: label(e.sourceId), kind: 'event' });
     evidence.push(ev(inp, e));
   }
   const completed = inp.items.filter((i) => (i.kind === 'task' || i.kind === 'habit') && i.done).slice(0, 6);
   for (const c of completed) {
-    rows.push({ time: c.data?.completedAt ? timeOf(String(c.data.completedAt)) : '✓', text: `Done: ${c.title}`, source: label(c.sourceId), kind: 'task' });
+    dated.push({ at: msOf(c.data?.completedAt), time: c.data?.completedAt ? timeOf(String(c.data.completedAt)) : '✓', text: `Done: ${c.title}`, source: label(c.sourceId), kind: 'task' });
     evidence.push(ev(inp, c));
   }
   for (const p of inp.items.filter((i) => i.kind === 'photo' && i.startsAt && localDateIso(new Date(i.startsAt)) === tc.dateIso).slice(0, 3)) {
-    rows.push({ time: timeOf(p.startsAt), text: `Photo: ${p.title}`, source: label(p.sourceId), kind: 'photo' });
+    dated.push({ at: msOf(p.startsAt), time: timeOf(p.startsAt), text: `Photo: ${p.title}`, source: label(p.sourceId), kind: 'photo' });
     evidence.push(ev(inp, p));
   }
   for (const th of inp.items.filter((i) => i.sourceId === 'share_target' && i.startsAt && localDateIso(new Date(i.startsAt)) === tc.dateIso).slice(0, 2)) {
-    rows.push({ time: timeOf(th.startsAt), text: `Saved: ${th.title}`, source: label(th.sourceId), kind: 'thought' });
+    dated.push({ at: msOf(th.startsAt), time: timeOf(th.startsAt), text: `Saved: ${th.title}`, source: label(th.sourceId), kind: 'thought' });
     evidence.push(ev(inp, th));
   }
-  rows.sort((a, b) => (a.time === '✓' ? 1 : b.time === '✓' ? -1 : 0));
+  const rows = dated.sort((a, b) => a.at - b.at).map(({ at: _at, ...row }) => row);
   // The day's soundtrack
   const tracks = inp.items.filter((i) => i.kind === 'track' && i.startsAt && localDateIso(new Date(i.startsAt)) === tc.dateIso);
   const lines: { text: string; source: string }[] = [];
@@ -645,10 +647,10 @@ function reflect(inp: MomentInputs): Suggestion | null {
   };
 }
 
-function unfinished(inp: MomentInputs): Suggestion | null {
+function unfinished(inp: MomentInputs, skipProjectId?: unknown): Suggestion | null {
   if (!inp.temporal.awake) return null;
   const nowMs = inp.temporal.now.getTime();
-  const thoughts = inp.items.filter((i) => i.kind === 'thought' || (i.kind === 'note' && ((i.data?.reasons as string[] | undefined) ?? []).length) || (i.kind === 'link' && i.startsAt && nowMs - new Date(i.startsAt).getTime() > 4 * 86_400_000));
+  const thoughts = inp.items.filter((i) => !(skipProjectId != null && i.sourceId === 'journal' && i.data?.projectId === skipProjectId)).filter((i) => i.kind === 'thought' || (i.kind === 'note' && ((i.data?.reasons as string[] | undefined) ?? []).length) || (i.kind === 'link' && i.startsAt && nowMs - new Date(i.startsAt).getTime() > 4 * 86_400_000));
   const order = (i: ContextItem) => (i.sourceId === 'journal' ? 0 : i.sourceId === 'share_target' ? 1 : i.kind === 'note' ? 2 : 3);
   const pick = thoughts.sort((a, b) => order(a) - order(b) || (b.startsAt ?? '').localeCompare(a.startsAt ?? ''))[0];
   if (!pick) return null;
@@ -680,7 +682,8 @@ function resurface(inp: MomentInputs): Suggestion | null {
   if (!tc.awake || !(tc.part === 'morning' || tc.part === 'early_morning' || tc.part === 'evening')) return null;
   const mem = inp.items.find((i) => i.kind === 'memory') ?? inp.items.find((i) => i.kind === 'photo' && i.data?.anniversary);
   const hl = inp.items.find((i) => i.kind === 'highlight');
-  const otd = inp.items.find((i) => i.kind === 'onthisday');
+  // Only today's events: a cached feed from yesterday (before the daily resync) must not pose as today.
+  const otd = inp.items.find((i) => i.kind === 'onthisday' && i.startsAt === tc.dateIso);
   const main = mem ?? hl ?? otd;
   if (!main) return null;
   const evidence = [mem, hl, otd].filter(Boolean).map((i) => ev(inp, i!));
@@ -729,5 +732,25 @@ export function detectMoments(inp: MomentInputs): Suggestion[] {
       console.warn('[moments]', kind, e);
     }
   }
-  return out;
+  return dedupe(inp, out);
+}
+
+/**
+ * Cards combine sources so they shouldn't repeat each other: when "pick a project back up" already
+ * quotes a journal project's draft, the unfinished-thought card looks for a different thought.
+ */
+function dedupe(inp: MomentInputs, out: Suggestion[]): Suggestion[] {
+  const res = out.find((s) => s.moment === 'resume');
+  const unf = out.find((s) => s.moment === 'unfinished');
+  if (!res || !unf) return out;
+  const projectOf = (s: Suggestion) => inp.items.find((i) => i.id === s.evidence[0]?.id && i.sourceId === 'journal')?.data?.projectId;
+  const pid = projectOf(res);
+  if (pid == null || projectOf(unf) !== pid) return out;
+  let alt: Suggestion | null = null;
+  try {
+    alt = unfinished(inp, pid);
+  } catch {
+    alt = null;
+  }
+  return out.flatMap((s) => (s === unf ? (alt ? [alt] : []) : [s]));
 }
