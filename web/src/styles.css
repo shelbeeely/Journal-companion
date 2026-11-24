@@ -1623,6 +1623,22 @@ button.m-pick:hover {
 }
 .m-ai p {
   margin: 6px 0 2px;
+  /* Reserve three lines (notes are ≤ ~140 chars) so the note replaces "Thinking…" without moving the card. */
+  min-height: calc(3 * 1.45em);
+}
+.m-ai.pending p {
+  color: var(--muted);
+  animation: m-ai-think 1.6s ease-in-out infinite;
+}
+@keyframes m-ai-think {
+  50% {
+    opacity: 0.45;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .m-ai.pending p {
+    animation: none;
+  }
 }
 .m-ai-badge {
   background: var(--surface);

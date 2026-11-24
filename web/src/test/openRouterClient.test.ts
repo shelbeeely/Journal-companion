@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { JournalAiOrchestrator } from '../core/ai/orchestrator';
-import { OpenRouterClient, codeChallengeFor, createCodeVerifier, DEFAULT_AI_SETTINGS, type AiSettings } from '../core/ai/openRouterClient';
+import { OpenRouterClient, codeChallengeFor, createCodeVerifier, DEFAULT_AI_SETTINGS, stripInlineThinking, THINKING_BUDGET, type AiSettings } from '../core/ai/openRouterClient';
 import type { JournalProject } from '../core/models';
 
 const connected: AiSettings = { ...DEFAULT_AI_SETTINGS, apiKey: 'sk-or-test-123456', consentedAt: 1 };
@@ -49,7 +49,9 @@ describe('OpenRouterClient', () => {
     expect(body.model).toBe('thinkingmachines/inkling-2-mini');
     expect(body.provider).toEqual({ data_collection: 'deny' });
     expect(body.response_format.json_schema.name).toBe('hint');
-    expect(body.reasoning).toEqual({ enabled: false }); // short structured tasks: no hidden reasoning
+    // Thinking on, hidden: OpenRouter drops the reasoning; budget = answer (50) + thinking room.
+    expect(body.reasoning).toEqual({ effort: 'low', exclude: true });
+    expect(body.max_tokens).toBe(50 + THINKING_BUDGET.low);
     expect(body.user).toBeUndefined();
     expect(init.credentials).toBe('omit');
   });
@@ -61,7 +63,7 @@ describe('OpenRouterClient', () => {
     }
   });
 
-  it('on 400 retries without the reasoning switch, then without the schema', async () => {
+  it('on 400 retries without the reasoning parameter, then without the schema', async () => {
     let n = 0;
     const { c, calls } = client(connected, () => (n++ < 2 ? reply(400, {}) : reply(200, { choices: [{ message: { content: 'ok text' } }] })));
     expect((await c.generate('s', 'p', { schema: { name: 'x', schema: {} } })).kind).toBe('success');
@@ -71,16 +73,49 @@ describe('OpenRouterClient', () => {
     expect(calls).toHaveLength(3);
   });
 
-  it('retries once with a larger budget when a reasoning model runs out of room', async () => {
+  it('retries once with double the thinking room when the model runs out before answering', async () => {
     const empty = { choices: [{ finish_reason: 'length', message: { content: null } }] };
     let n = 0;
     const { c, calls } = client(connected, () => (n++ === 0 ? reply(200, empty) : reply(200, { choices: [{ finish_reason: 'stop', message: { content: '{"hint":"x"}' } }] })));
-    expect(await c.generate('s', 'p', { maxTokens: 60 })).toEqual({ kind: 'success', text: '{"hint":"x"}' });
-    expect(calls[1].body.max_tokens).toBe(60 * 4 + 1024);
+    expect(await c.generate('s', 'p', { maxTokens: 60, thinking: 'medium' })).toEqual({ kind: 'success', text: '{"hint":"x"}' });
+    expect(calls[0].body.max_tokens).toBe(60 + THINKING_BUDGET.medium);
+    expect(calls[1].body.max_tokens).toBe(60 + THINKING_BUDGET.medium * 2);
     // Never loops: a second empty reply is a failure → templates take over.
     const { c: c2, calls: calls2 } = client(connected, () => reply(200, empty));
     expect((await c2.generate('s', 'p')).kind).toBe('failure');
     expect(calls2).toHaveLength(2);
+  });
+
+  it('uses only the final answer: reasoning fields are ignored and inline thinking is stripped', async () => {
+    const { c } = client(connected, () =>
+      reply(200, { choices: [{ finish_reason: 'stop', message: { content: '<think>the user seems sad, maybe mention…</think>\n{"hint":"Start with the light."}', reasoning: 'SECRET THOUGHTS', reasoning_details: [{ text: 'SECRET' }] } }] }),
+    );
+    const r = await c.generate('s', 'p');
+    expect(r).toEqual({ kind: 'success', text: '{"hint":"Start with the light."}' });
+    expect(stripInlineThinking('<thinking>a</thinking>ok')).toBe('ok');
+    expect(stripInlineThinking('half a thought</think>{"a":1}')).toBe('{"a":1}');
+    expect(stripInlineThinking('{"a":"no tags"}')).toBe('{"a":"no tags"}');
+  });
+
+  it('per-task depth, raised one level with Deeper thinking', async () => {
+    const ok = () => reply(200, { choices: [{ message: { content: 'x' } }] });
+    const { c, calls } = client(connected, ok);
+    await c.generate('s', 'p', { thinking: 'medium' });
+    await c.generate('s', 'p');
+    expect(calls.map((x) => x.body.reasoning.effort)).toEqual(['medium', 'low']);
+    const { c: deep, calls: dc } = client({ ...connected, thinking: 'deep' }, ok);
+    for (const t of ['low', 'medium', 'high'] as const) await deep.generate('s', 'p', { thinking: t, maxTokens: 10 });
+    expect(dc.map((x) => x.body.reasoning.effort)).toEqual(['medium', 'high', 'high']);
+    expect(dc[0].body.max_tokens).toBe(10 + THINKING_BUDGET.medium);
+  });
+
+  it('each journaling task asks for its thinking depth', async () => {
+    const { c, calls } = client(connected, () => reply(200, { choices: [{ message: { content: '{}' } }] }));
+    const orch = new JournalAiOrchestrator(c);
+    await orch.generateNextPrompt(project, [], [], ctx);
+    await orch.generateHint(project, 'What steadied you?', []);
+    await orch.testConnection();
+    expect(calls.map((x) => x.body.reasoning.effort)).toEqual(['medium', 'low', 'low']);
   });
 
   it('treats network failure as unavailable so templates take over', async () => {

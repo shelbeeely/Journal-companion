@@ -192,6 +192,23 @@ AI-written prompts, hints, draft help and desk cues come from a model you choose
 2. Review the **What gets sent** sheet and choose **Turn on AI**.
 3. Optionally pick a model; the default is the budget model `thinkingmachines/inkling-2-mini`. Use **Test** to check it works.
 
+**Thinking is on, and hidden.** Every request asks the model to reason before it answers (`reasoning.effort`), with `exclude: true`, so OpenRouter strips the reasoning before replying. It never reaches the device.
+
+- The app reads only the final answer, then validates it. Any inline `<think>` text is removed defensively.
+- Room for thinking is reserved on top of the answer's token budget, so long thinking can't cut off the answer. If it still runs out, the app retries once with more room.
+
+Thinking depth depends on the task:
+
+| Task | Depth | Typical time |
+| --- | --- | --- |
+| Card notes, desk cues, hints | low | ~0.5–1.5 s |
+| The day's question, draft help | medium | ~1.5–3 s |
+| Proposing a project in the wizard | high | ~2–5 s |
+
+*Deeper thinking* in Settings raises each task one level, which is slower and costs more. While the model works on a card, the card shows a labelled "Thinking it over…" placeholder. The note replaces it in place, without moving the card.
+
+The model can also choose the order of a card's sections, but it can only reorder them. Any section it leaves out still appears, so real data never disappears from the card.
+
 **What leaves the device when AI is on**, and only when the app asks the model for something:
 - today's question and recent prompts (so new ones don't repeat);
 - the project's goal, themes, tone and boundaries;

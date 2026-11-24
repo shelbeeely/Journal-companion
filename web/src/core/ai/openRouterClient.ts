@@ -1,5 +1,5 @@
 import type { AiAvailabilityState } from '../models';
-import type { AiClient, AiGenerationResult, GenerateOptions } from './aiClient';
+import type { AiClient, AiGenerationResult, GenerateOptions, ThinkingLevel } from './aiClient';
 
 /**
  * OpenRouter (https://openrouter.ai) chat-completions client.
@@ -18,9 +18,24 @@ export interface AiSettings {
   /** Set once the user accepts the "what gets sent" consent sheet. AI stays off without it. */
   consentedAt: number | null;
   connectedVia: 'oauth' | 'manual' | null;
+  /** balanced: per-task thinking depth; deep: one level deeper everywhere (slower, costs more). */
+  thinking: 'balanced' | 'deep';
 }
 
-export const DEFAULT_AI_SETTINGS: AiSettings = { apiKey: null, model: DEFAULT_MODEL, consentedAt: null, connectedVia: null };
+export const DEFAULT_AI_SETTINGS: AiSettings = { apiKey: null, model: DEFAULT_MODEL, consentedAt: null, connectedVia: null, thinking: 'balanced' };
+
+/** Tokens reserved for hidden thinking on top of the answer budget, so thinking can't crowd out the answer. */
+export const THINKING_BUDGET: Record<ThinkingLevel, number> = { low: 1500, medium: 3000, high: 6000 };
+
+const DEEPER: Record<ThinkingLevel, ThinkingLevel> = { low: 'medium', medium: 'high', high: 'high' };
+
+/** Removes thinking some providers inline in the answer (e.g. <think>…</think>). */
+export function stripInlineThinking(text: string): string {
+  return text
+    .replace(/<(think|thinking|reasoning)>[\s\S]*?<\/\1>/gi, '')
+    .replace(/^[\s\S]*<\/(think|thinking|reasoning)>/i, '') // opening tag cut off upstream
+    .trim();
+}
 
 export interface AiSettingsSource {
   getAiSettings(): Promise<AiSettings>;
@@ -72,26 +87,30 @@ export class OpenRouterClient implements AiClient {
   }
 
   async generate(systemInstruction: string, prompt: string, options: GenerateOptions = {}): Promise<AiGenerationResult> {
-    return this.attempt(systemInstruction, prompt, options, { reasoningOff: true, retriedLength: false });
+    return this.attempt(systemInstruction, prompt, options, { reasoning: true, extraThinking: 1, retriedLength: false });
   }
 
   /**
-   * Every request here is a short, structured task, so reasoning is switched off: reasoning models
-   * otherwise spend the whole max_tokens budget thinking and return no content. Fallbacks, each at
-   * most once: a model that rejects the reasoning switch → retry without it; a model that reasons
-   * anyway and runs out of room → retry with a larger budget; a model that rejects structured
-   * outputs → retry without the schema.
+   * Thinking is on: the model reasons with `reasoning.effort` for the task, and `exclude: true`
+   * tells OpenRouter to drop the reasoning from the response, so it never reaches this device.
+   * Only `message.content` (the final answer) is read; it's then validated by the caller.
+   * Fallbacks, each at most once: out of room before answering → retry with double the thinking
+   * budget; a model that rejects the reasoning parameter → retry without it; a model that rejects
+   * structured outputs → retry without the schema.
    */
   private async attempt(
     systemInstruction: string,
     prompt: string,
     options: GenerateOptions,
-    st: { reasoningOff: boolean; retriedLength: boolean },
+    st: { reasoning: boolean; extraThinking: number; retriedLength: boolean },
   ): Promise<AiGenerationResult> {
     const s = await this.settings.getAiSettings();
     if (!s.apiKey || !s.consentedAt) return { kind: 'unavailable', reason: 'AI is not connected. Using built-in templates.' };
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return { kind: 'unavailable', reason: 'Offline — using built-in templates.' };
 
+    const base = options.thinking ?? 'low';
+    const effort = s.thinking === 'deep' ? DEEPER[base] : base;
+    const answerBudget = options.maxTokens ?? 512;
     const body: Record<string, unknown> = {
       model: s.model || DEFAULT_MODEL,
       messages: [
@@ -99,11 +118,11 @@ export class OpenRouterClient implements AiClient {
         { role: 'user', content: prompt },
       ],
       temperature: options.temperature ?? 0.4,
-      max_tokens: options.maxTokens ?? 512,
+      max_tokens: st.reasoning ? answerBudget + THINKING_BUDGET[effort] * st.extraThinking : answerBudget,
       // Ask OpenRouter to route only to providers that don't retain or train on prompts.
       provider: { data_collection: 'deny' },
     };
-    if (st.reasoningOff) body.reasoning = { enabled: false };
+    if (st.reasoning) body.reasoning = { effort, exclude: true };
     if (options.schema) {
       body.response_format = { type: 'json_schema', json_schema: { name: options.schema.name, strict: true, schema: options.schema.schema } };
     }
@@ -117,7 +136,8 @@ export class OpenRouterClient implements AiClient {
     }
 
     if (!res.ok) {
-      if (res.status === 400 && st.reasoningOff) return this.attempt(systemInstruction, prompt, options, { ...st, reasoningOff: false });
+      // Models without reasoning support may reject the parameter.
+      if (res.status === 400 && st.reasoning) return this.attempt(systemInstruction, prompt, options, { ...st, reasoning: false });
       // Some models reject structured outputs; retry once without the schema.
       if (res.status === 400 && options.schema) return this.attempt(systemInstruction, prompt, { ...options, schema: undefined }, st);
       this.invalidate();
@@ -128,12 +148,13 @@ export class OpenRouterClient implements AiClient {
     }
 
     try {
+      // Deliberately typed without `reasoning` / `reasoning_details`: only the final answer is used.
       const data = (await res.json()) as { choices?: { finish_reason?: string | null; message?: { content?: string | null } }[]; error?: { message?: string } };
       if (data.error) return { kind: 'failure', message: data.error.message ?? 'OpenRouter error.' };
-      const text = data.choices?.[0]?.message?.content?.trim() ?? '';
+      const text = stripInlineThinking(data.choices?.[0]?.message?.content ?? '');
       if (!text && data.choices?.[0]?.finish_reason === 'length' && !st.retriedLength) {
-        // The model reasoned anyway and ran out of room before answering.
-        return this.attempt(systemInstruction, prompt, { ...options, maxTokens: (options.maxTokens ?? 512) * 4 + 1024 }, { ...st, retriedLength: true });
+        // Thought for longer than budgeted and ran out of room before answering.
+        return this.attempt(systemInstruction, prompt, options, { ...st, extraThinking: st.extraThinking * 2, retriedLength: true });
       }
       return text ? { kind: 'success', text } : { kind: 'failure', message: 'The model returned an empty response.' };
     } catch {

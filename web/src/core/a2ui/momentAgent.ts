@@ -37,6 +37,8 @@ export interface MomentRenderOptions {
   simplified: boolean;
   saved: boolean;
   aiNote?: string | null;
+  /** The model is thinking about this card; show a labelled placeholder where its note will go. */
+  aiPending?: boolean;
   /** Validated AI layout (subset/order of CONTENT_SECTIONS), or null for the deterministic one. */
   layout?: ContentSection[] | null;
   /** Shown on saved snapshots. */
@@ -110,9 +112,11 @@ function sectionComponents(sec: ContentSection, interactive: boolean): Component
 export function momentComponents(s: Suggestion, o: MomentRenderOptions): Component[] {
   const im = String(o.interactive);
   const avail = available(s.sections);
-  let content: ContentSection[] = o.layout ?? avail;
+  // An AI layout may only reorder: sections it didn't mention follow in their usual order, so real
+  // data never disappears from the card because of a model's choice.
+  let content: ContentSection[] = o.layout ? [...o.layout.filter((c) => avail.includes(c)), ...avail.filter((c) => !o.layout!.includes(c))] : avail;
   if (o.simplified) content = content.filter((c) => c !== 'prompt' && c !== 'extras').slice(0, 1);
-  const children = ['header', ...(o.aiNote ? ['ai_note'] : []), ...content, ...(s.missing.length && !o.saved ? ['missing'] : []), ...(o.interactive && s.actions.length ? ['actions'] : []), 'evidence', ...(o.interactive ? ['controls'] : [])];
+  const children = ['header', ...(o.aiNote || o.aiPending ? ['ai_note'] : []), ...content, ...(s.missing.length && !o.saved ? ['missing'] : []), ...(o.interactive && s.actions.length ? ['actions'] : []), 'evidence', ...(o.interactive ? ['controls'] : [])];
   const comps: Component[] = [
     { id: 'root', component: 'MomentColumn', children, simplified: String(o.simplified) },
     { id: 'header', component: 'MomentHeader', momentLabel: ref('/m/momentLabel'), title: ref('/m/title'), summary: ref('/m/summary'), timing: ref('/m/timing'), savedLabel: ref('/m/savedLabel') },
@@ -125,7 +129,7 @@ export function momentComponents(s: Suggestion, o: MomentRenderOptions): Compone
     },
     { id: 'evidence_row', component: 'EvidenceRow', text: ref('text'), source: ref('source'), freshness: ref('freshness'), origin: ref('origin'), stale: ref('staleLabel') },
   ];
-  if (o.aiNote) comps.push({ id: 'ai_note', component: 'AiNote', text: ref('/m/aiNote'), basis: ref('/m/aiBasis') });
+  if (o.aiNote || o.aiPending) comps.push({ id: 'ai_note', component: 'AiNote', text: ref('/m/aiNote'), basis: ref('/m/aiBasis'), state: ref('/m/aiState') });
   if (s.missing.length && !o.saved) {
     comps.push(
       { id: 'missing', component: 'MissingSources', items: { componentId: 'missing_row', path: '/m/missing' } },
@@ -181,8 +185,9 @@ export function momentData(s: Suggestion, o: MomentRenderOptions, now: number): 
     savedLabel: o.savedAtLabel ?? '',
     savedFlag: String(o.saved),
     simplifiedLabel: String(o.simplified),
-    aiNote: o.aiNote ?? '',
-    aiBasis: o.aiNote ? 'AI interpretation of the evidence below — not a fact' : '',
+    aiNote: o.aiNote ?? (o.aiPending ? 'Thinking it over…' : ''),
+    aiBasis: o.aiNote ? 'AI interpretation of the evidence below — not a fact' : o.aiPending ? 'Only the sources you allowed are shared' : '',
+    aiState: o.aiNote ? 'ready' : o.aiPending ? 'pending' : '',
     event: sec.event ? { title: sec.event.title, time: sec.event.time, place: sec.event.place ?? '', leaveBy: sec.event.leaveBy ?? '', travel: sec.event.travel ?? '' } : {},
     hourly: sec.hourly ? { label: sec.hourly.label, note: sec.hourly.note ?? '', points: sec.hourly.points.map((p) => ({ time: p.time, tempLabel: `${p.temp}°`, popLabel: p.pop != null && p.pop >= 20 ? `${p.pop}%` : '', condition: p.condition })) } : { points: [] },
     media: sec.media ? { title: sec.media.title, picks: sec.media.picks.map((p) => ({ ...p, url: p.url ?? '', image: p.image ?? '' })) } : { picks: [] },

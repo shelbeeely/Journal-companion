@@ -5,7 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { MessageProcessor } from '@a2ui/web_core/v0_9';
 import { A2uiSurface } from '@a2ui/react/v0_9';
 import { deskCatalog } from '../a2ui/deskCatalog';
-import { MomentAgent, momentComponents, snapshotMessages, surfaceIdFor, validateLayout } from '../core/a2ui/momentAgent';
+import { MomentAgent, momentComponents, momentData, snapshotMessages, surfaceIdFor, validateLayout } from '../core/a2ui/momentAgent';
 import type { Suggestion } from '../core/context/moments';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -35,13 +35,30 @@ const s: Suggestion = {
 };
 
 describe('MomentAgent', () => {
+  it('shows a labelled thinking placeholder that the note replaces with a data-only update', () => {
+    const base = { interactive: true, simplified: false, saved: false };
+    const agent = new MomentAgent();
+    const now = Date.now();
+    const pending = agent.sync(s, { ...base, aiPending: true }, now);
+    const comps = pending.flatMap((m) => ('updateComponents' in m ? (m.updateComponents as { components: { id: string; component: string }[] }).components : []));
+    expect(comps.find((c) => c.id === 'ai_note')?.component).toBe('AiNote');
+    expect(momentData(s, { ...base, aiPending: true }, now)).toMatchObject({ aiState: 'pending', aiNote: 'Thinking it over…' });
+    // Note arrives: same structure, so only the data model is sent (no re-layout).
+    const ready = agent.sync(s, { ...base, aiNote: 'Bring a coat; rain clears by 5.' }, now);
+    expect(ready.some((m) => 'updateComponents' in m)).toBe(false);
+    expect(ready.some((m) => 'updateDataModel' in m)).toBe(true);
+    expect(momentData(s, { ...base, aiNote: 'x' }, now)).toMatchObject({ aiState: 'ready', aiBasis: expect.stringContaining('not a fact') });
+    // No placeholder unless the model is actually working.
+    expect(momentComponents(s, base)[0].children).not.toContain('ai_note');
+  });
+
   it('builds always-honest layouts and validates AI layouts', () => {
     const ids = (o: Parameters<typeof momentComponents>[1]) => (momentComponents(s, o)[0].children as string[]);
     expect(ids({ interactive: true, simplified: false, saved: false })).toEqual(['header', 'event', 'hourly', 'checklist', 'memory', 'prompt', 'missing', 'actions', 'evidence', 'controls']);
     expect(ids({ interactive: true, simplified: true, saved: false })).toEqual(['header', 'event', 'missing', 'actions', 'evidence', 'controls']);
     // AI may reorder/omit content, but header/evidence/controls stay and AI text is isolated in AiNote.
     const layout = validateLayout(['hourly', 'event'], s.sections)!;
-    expect(ids({ interactive: true, simplified: false, saved: false, layout, aiNote: 'Bring an umbrella.' })).toEqual(['header', 'ai_note', 'hourly', 'event', 'missing', 'actions', 'evidence', 'controls']);
+    expect(ids({ interactive: true, simplified: false, saved: false, layout, aiNote: 'Bring an umbrella.' })).toEqual(['header', 'ai_note', 'hourly', 'event', 'checklist', 'memory', 'prompt', 'missing', 'actions', 'evidence', 'controls']); // AI reorders; nothing is dropped
     expect(validateLayout(['hourly', 'fireworks'], s.sections)).toBeNull();
     expect(validateLayout(['media'], s.sections)).toBeNull(); // not available for this suggestion
     // Saved snapshots are read-only.

@@ -102,6 +102,7 @@ export class JournalAiOrchestrator {
       temperature: 0.2,
       maxTokens: 60,
       schema: SCHEMAS.hint,
+      thinking: 'low',
     });
     if (res.kind === 'success') {
       const hint = validateHintResponse(res.text);
@@ -145,7 +146,7 @@ firstPrompt (string), firstHints (array of 1-2 short hints: a sentence starter o
 ${brief}
 ${wizardSection}`;
 
-    const result = await this.ai.generate(system, user, { temperature: 0.25, maxTokens: 600, schema: SCHEMAS.proposal });
+    const result = await this.ai.generate(system, user, { temperature: 0.25, maxTokens: 600, schema: SCHEMAS.proposal, thinking: 'high' });
     if (result.kind === 'success') {
       const v = validateProjectProposal(result.text);
       if (!v) return Fallback.proposeSetupFromBrief(brief, 'AI output failed validation; applied structured template proposal.', wizardInputs);
@@ -206,7 +207,7 @@ Rules:
       if (ctx.weatherSummary) lines.push(`Weather: ${ctx.weatherSummary}${ctx.weatherFetchedTimestamp ? ` (fetched ${ctx.weatherFetchedTimestamp})` : ''}`);
     }
 
-    const result = await this.ai.generate(system, lines.join('\n'), { temperature: 0.65, maxTokens: 300, schema: SCHEMAS.prompt });
+    const result = await this.ai.generate(system, lines.join('\n'), { temperature: 0.65, maxTokens: 300, schema: SCHEMAS.prompt, thinking: 'medium' });
     const fallback = (note: string | null): GeneratedPromptResult => {
       const f = Fallback.generateFallbackPrompt(project, recentPrompts, recentTopics, ctx, previousTopicToAvoid);
       return { promptText: f.question, topicTag: f.topicTag, hints: f.hints, usedAi: false, statusNote: note };
@@ -232,7 +233,7 @@ Respect tone and boundaries. Never invent memories.`;
       lines.push('Already shown hints (give a different angle):');
       existingHints.forEach((h) => lines.push(`- ${h}`));
     }
-    const result = await this.ai.generate(system, lines.join('\n'), { temperature: 0.5, maxTokens: 160, schema: SCHEMAS.hint });
+    const result = await this.ai.generate(system, lines.join('\n'), { temperature: 0.5, maxTokens: 160, schema: SCHEMAS.hint, thinking: 'low' });
     if (result.kind === 'success') {
       const v = validateHintResponse(result.text);
       if (v && !existingHints.includes(v)) return { hintText: v, usedAi: true, statusNote: null };
@@ -251,7 +252,7 @@ Leave room for the user to finish the thought. Never invent fake memories.`;
     const lines = [`Prompt: ${currentPrompt}`];
     if (project.tonePreferences) lines.push(`Tone: ${project.tonePreferences}`);
     if (project.boundaries) lines.push(`Boundaries: ${project.boundaries}`);
-    const result = await this.ai.generate(system, lines.join('\n'), { temperature: 0.5, maxTokens: 200, schema: SCHEMAS.suggestion });
+    const result = await this.ai.generate(system, lines.join('\n'), { temperature: 0.5, maxTokens: 200, schema: SCHEMAS.suggestion, thinking: 'medium' });
     if (result.kind === 'success') {
       const t = validateDraftSuggestion(result.text);
       if (t) return { kind: 'HELP_START', suggestedText: t, usedAi: true };
@@ -273,7 +274,7 @@ Never invent details not in the draft. ${targetNote}`;
     const lines = [`Prompt: ${currentPrompt}`];
     if (project.tonePreferences) lines.push(`Tone: ${project.tonePreferences}`);
     lines.push('## User Draft', currentDraft);
-    const result = await this.ai.generate(system, lines.join('\n'), { temperature: 0.3, maxTokens: 500, schema: SCHEMAS.suggestion });
+    const result = await this.ai.generate(system, lines.join('\n'), { temperature: 0.3, maxTokens: 500, schema: SCHEMAS.suggestion, thinking: 'medium' });
     if (result.kind === 'success') {
       const t = validateDraftSuggestion(result.text);
       if (t) return { kind: 'TIGHTEN_DRAFT', suggestedText: t, usedAi: true };
@@ -309,7 +310,7 @@ Rules:
     lines.push(`Window: ${snapshot.writingWindowCue} (${snapshot.formattedTime})`);
     if (snapshot.weatherSummary) lines.push(`Weather: ${snapshot.weatherSummary}`);
     if (snapshot.daylightSummary) lines.push(`Daylight: ${snapshot.daylightSummary}`);
-    const res = await this.ai.generate(system, lines.join('\n'), { temperature: 0.35, maxTokens: 260, schema: SCHEMAS.deskCues });
+    const res = await this.ai.generate(system, lines.join('\n'), { temperature: 0.35, maxTokens: 260, schema: SCHEMAS.deskCues, thinking: 'low' });
     return res.kind === 'success' ? parseDeskCues(res.text) : null;
   }
 }
@@ -333,11 +334,11 @@ export async function interpretSuggestion(ai: AiClient, s: Suggestion, allowedSo
 Return ONLY JSON: {"note": "...", "layout": [...], "usedEvidence": [...]}.
 Rules:
 - note: max 140 characters, calm, concrete, and ONLY derived from the evidence provided. Never invent facts, times, names or numbers.
-- layout: an ordering of these available sections, most useful first (you may omit some): ${available.join(', ')}.
+- layout: an ordering of these available sections, most useful first (sections you leave out still appear after yours): ${available.join(', ')}.
 - usedEvidence: the ids of the evidence you relied on (must be from the list).`;
   // The card title can quote a source the user didn't share (e.g. a calendar event), so only the moment kind is sent.
   const lines = [`Moment: ${s.moment}`, '## Evidence (id | source | fact)', ...evidence.map((e) => `${e.id} | ${e.sourceLabel} | ${e.text}`)];
-  const res = await ai.generate(system, lines.join('\n'), { temperature: 0.3, maxTokens: 220, schema: SCHEMAS.interpretation });
+  const res = await ai.generate(system, lines.join('\n'), { temperature: 0.3, maxTokens: 220, schema: SCHEMAS.interpretation, thinking: 'low' });
   if (res.kind !== 'success') return null;
   const block = extractJsonBlock(res.text);
   if (!block) return null;

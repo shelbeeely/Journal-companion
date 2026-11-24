@@ -228,6 +228,7 @@ export function useCompanion(d: CompanionDeps) {
   }, [visible.map((s) => s.key).join('|')]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Optional AI interpretation for the top card only, from sources the user allowed.
+  const [pendingInterp, setPendingInterp] = useState<Set<string>>(() => new Set());
   const allowedForAi = useMemo(() => new Set(Object.entries(states).filter(([, s]) => s.shareWithAi).map(([id]) => id)), [states]);
   const top = visible[0];
   const interpKey = top ? `${top.key}|${top.evidence.map((e) => e.id).join(',')}` : '';
@@ -235,16 +236,29 @@ export function useCompanion(d: CompanionDeps) {
     if (!top || !d.aiEnabled || !allowedForAi.size || interpKey in interpretations) return;
     if ((navigator as { connection?: { saveData?: boolean } }).connection?.saveData) return;
     let cancelled = false;
-    setInterpretations((m) => ({ ...m, [interpKey]: null })); // mark in-flight (and cache failures)
-    interpretSuggestion(d.aiClient, top, allowedForAi).then((r) => {
-      if (!cancelled) setInterpretations((m) => ({ ...m, [interpKey]: r }));
-    });
+    const key = interpKey;
+    setInterpretations((m) => ({ ...m, [key]: null })); // requested once per card+evidence (failures cached)
+    setPendingInterp((p) => new Set(p).add(key));
+    interpretSuggestion(d.aiClient, top, allowedForAi)
+      .then((r) => {
+        if (!cancelled) setInterpretations((m) => ({ ...m, [key]: r }));
+      })
+      .finally(() =>
+        setPendingInterp((p) => {
+          const n = new Set(p);
+          n.delete(key);
+          return n;
+        }),
+      );
     return () => {
       cancelled = true;
     };
   }, [interpKey, d.aiEnabled, allowedForAi]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const interpretationFor = (s: Suggestion): Interpretation | null => interpretations[`${s.key}|${s.evidence.map((e) => e.id).join(',')}`] ?? null;
+  const keyOf = (s: Suggestion) => `${s.key}|${s.evidence.map((e) => e.id).join(',')}`;
+  const interpretationFor = (s: Suggestion): Interpretation | null => interpretations[keyOf(s)] ?? null;
+  /** True while the model is thinking about this card (its note will appear in place). */
+  const interpretationPending = (s: Suggestion): boolean => pendingInterp.has(keyOf(s));
 
   /* -------------------------------- actions -------------------------------- */
 
@@ -272,6 +286,7 @@ export function useCompanion(d: CompanionDeps) {
     syncing,
     allSuggestions: all,
     interpretationFor,
+    interpretationPending,
     contextStore: d.contextStore,
     syncNow: (ids?: string[]) => runSync(ids ?? [...enabledIds]),
     syncOne: (id: string) => runSync([id]),

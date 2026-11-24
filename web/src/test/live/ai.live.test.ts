@@ -11,11 +11,26 @@ import type { DeskContextSnapshot, JournalProject } from '../../core/models';
 const env = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env ?? {};
 const apiKey = env.OPENROUTER_API_KEY ?? 'proxy-injected';
 const sent: string[] = [];
-const fetcher: typeof fetch = (input, init) => {
+const received: { effort?: string; reasoningTokens?: number; ms: number; hasReasoningText: boolean }[] = [];
+const fetcher: typeof fetch = async (input, init) => {
   if (typeof init?.body === 'string') sent.push(init.body);
-  return fetch(input, init);
+  const started = Date.now();
+  const res = await fetch(input, init);
+  if (String(input).endsWith('/chat/completions')) {
+    const j = (await res.clone().json().catch(() => ({}))) as { choices?: { message?: Record<string, unknown> }[]; usage?: { completion_tokens_details?: { reasoning_tokens?: number } } };
+    const m = j.choices?.[0]?.message ?? {};
+    received.push({
+      effort: (JSON.parse(String(init?.body)) as { reasoning?: { effort?: string } }).reasoning?.effort,
+      reasoningTokens: j.usage?.completion_tokens_details?.reasoning_tokens,
+      ms: Date.now() - started,
+      // Thinking must not reach the device: no reasoning text in any field.
+      hasReasoningText: !!(m.reasoning || (Array.isArray(m.reasoning_details) && m.reasoning_details.length) || /<think/i.test(String(m.content ?? ''))),
+    });
+  }
+  return res;
 };
-const client = new OpenRouterClient({ getAiSettings: async () => ({ ...DEFAULT_AI_SETTINGS, apiKey, consentedAt: Date.now(), connectedVia: 'key' as never }) }, fetcher, 'https://journal-companion.app');
+let thinking: 'balanced' | 'deep' = 'balanced';
+const client = new OpenRouterClient({ getAiSettings: async () => ({ ...DEFAULT_AI_SETTINGS, apiKey, consentedAt: Date.now(), connectedVia: 'manual', thinking }) }, fetcher, 'https://journal-companion.app');
 const ai = new JournalAiOrchestrator(client);
 
 const project = {
@@ -79,4 +94,21 @@ describe('OpenRouter live', () => {
     expect(cues && Object.values(cues).some((v) => typeof v === 'string' && v.length > 0)).toBe(true);
     console.log('generated', JSON.stringify({ prompt: p.promptText, hints: p.hints, hint: h.hintText, cues }, null, 1));
   }, 90_000);
+
+  it('wizard setup thinks hardest; Deeper thinking raises a card note to medium', async () => {
+    const setup = await ai.proposeProjectSetup('I want to write a few lines each evening about small good moments, especially with people I love. Gentle tone, no work talk.');
+    expect(setup.usedAi, setup.statusNote ?? '').toBe(true);
+    thinking = 'deep';
+    const from = received.length;
+    const r = await interpretSuggestion(client, outing, new Set(['weather']));
+    thinking = 'balanced';
+    expect(r).not.toBeNull();
+    expect(received[from].effort).toBe('medium');
+  }, 120_000);
+
+  it('thinking happened, and none of it reached the device', () => {
+    console.log('responses', JSON.stringify(received, null, 0));
+    expect(received.length).toBeGreaterThan(0);
+    expect(received.every((r) => !r.hasReasoningText)).toBe(true);
+  });
 });

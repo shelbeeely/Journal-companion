@@ -259,13 +259,13 @@ const PromptSeed = createComponentImplementation(
 );
 
 const AiNote = createComponentImplementation(
-  { name: 'AiNote', schema: z.object({ text: S, basis: optS }) },
+  { name: 'AiNote', schema: z.object({ text: S, basis: optS, state: optS }) },
   ({ props }) => (
-    <aside className="m-ai" aria-label="AI interpretation">
+    <aside className={`m-ai${props.state === 'pending' ? ' pending' : ''}`} aria-label="AI interpretation" aria-busy={props.state === 'pending'}>
       <span className="badge m-ai-badge">
         <Icon name="spark" size={13} /> AI interpretation
       </span>
-      <p className="small">{props.text}</p>
+      <p className="small" aria-live="polite">{props.text}</p>
       {props.basis && <span className="tiny muted">{props.basis}</span>}
     </aside>
   ),

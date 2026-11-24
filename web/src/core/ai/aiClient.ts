@@ -13,10 +13,16 @@ export interface ResponseSchema {
   schema: Record<string, unknown>;
 }
 
+/** How hard the model may think before answering. The thinking itself is never returned or shown. */
+export type ThinkingLevel = 'low' | 'medium' | 'high';
+
 export interface GenerateOptions {
   temperature?: number;
+  /** Budget for the visible answer only; room for thinking is added on top. */
   maxTokens?: number;
   schema?: ResponseSchema;
+  /** Thinking depth for this task (default 'low'). */
+  thinking?: ThinkingLevel;
 }
 
 /** Any text-generation backend. Every failure maps to a result kind so callers can fall back to templates. */

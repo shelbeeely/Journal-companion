@@ -274,6 +274,12 @@ function AiCard() {
               </>
             )}
           </div>
+          <Switch
+            label="Deeper thinking"
+            description="The model always thinks before answering; only its final answer is used, and the thinking is never sent to this device. Deeper thinking is more considered, but slower and costs more."
+            checked={cfg.thinking === 'deep'}
+            onChange={(v) => actions.updateAiSettings({ thinking: v ? 'deep' : 'balanced' })}
+          />
           <div className="row">
             <button
               className="btn sm"

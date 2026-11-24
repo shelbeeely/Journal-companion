@@ -30,9 +30,10 @@ function MomentCard({ s }: { s: Suggestion }) {
   const interp = life.interpretationFor(s);
   const simplified = state.preferences.simplifiedMoments.includes(s.moment);
   const saved = life.isSaved(s.key);
+  const aiPending = !interp && life.interpretationPending(s);
   const options = useMemo<MomentRenderOptions>(
-    () => ({ interactive: true, simplified, saved, aiNote: interp?.note ?? null, layout: interp?.layout ?? null }),
-    [simplified, saved, interp?.note, interp?.layout],
+    () => ({ interactive: true, simplified, saved, aiNote: interp?.note ?? null, aiPending, layout: interp?.layout ?? null }),
+    [simplified, saved, interp?.note, interp?.layout, aiPending],
   );
   return (
     <article className="card now-card" data-testid={`moment_${s.moment}`}>
