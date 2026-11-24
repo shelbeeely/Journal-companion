@@ -22,6 +22,9 @@ import { detectTask, type RouteName, type TaskKind } from '../core/taskContext';
 import { isStandalone } from './install';
 import { downloadBackup } from './backup';
 import { navigate, useRoute } from './router';
+import { useCompanion } from './companion';
+import type { ContextStore } from '../core/sources/contextStore';
+import type { AiClient } from '../core/ai/aiClient';
 import { getApproximateLocation } from '../core/weather';
 import { chime, haptic } from './feedback';
 
@@ -69,7 +72,7 @@ export interface AppState {
   route: RouteName;
 }
 
-function useActions(repo: JournalRepository, initialBanner: string | null = null) {
+function useActions(repo: JournalRepository, initialBanner: string | null, contextStore: ContextStore, aiClient: AiClient) {
   const [isLoading, setLoading] = useState(true);
   const [projects, setProjects] = useState<JournalProject[]>([]);
   const [preferences, setPreferences] = useState<DeskUiPreferences>(DEFAULT_PREFERENCES);
@@ -109,6 +112,7 @@ function useActions(repo: JournalRepository, initialBanner: string | null = null
   const [lastTypedAt, setLastTypedAt] = useState<number | null>(null);
   const [enteredTodayAt, setEnteredTodayAt] = useState(() => Date.now());
   const [editorBrief, setEditorBrief] = useState('');
+  const [journalVersion, setJournalVersion] = useState(0);
 
   const todayIso = localDateIso(now);
   const activeProject = useMemo(() => {
@@ -162,6 +166,7 @@ function useActions(repo: JournalRepository, initialBanner: string | null = null
     return repo.subscribe(() => {
       reloadGlobal();
       reloadProjectData();
+      setJournalVersion((v) => v + 1);
     });
   }, [repo, reloadGlobal, reloadProjectData]);
 
@@ -582,6 +587,108 @@ function useActions(repo: JournalRepository, initialBanner: string | null = null
   );
   const engineBadge = cues ? `AI · ${aiSettings.model.split('/').pop()}` : 'Desk agent · local';
 
+  /* ------------------------- context-aware companion ------------------------- */
+
+  const life = useCompanion({
+    contextStore,
+    aiClient,
+    aiEnabled: ai.kind === 'available',
+    prefs: preferences,
+    updatePreferences: (patch) => repo.updatePreferences(patch),
+    projects,
+    todayEntry,
+    activeProjectId: activeProject?.id ?? null,
+    task,
+    now,
+    weather,
+    journalVersion,
+    notify: setBanner,
+    loadAllEntries: () => repo.getAllEntries(),
+  });
+
+  /** Appends text to today's note (undoable), opens the note, never overwrites. */
+  const appendToDraft = (text: string) => {
+    const clean = text.trim();
+    if (!clean) {
+      setDraftOpenNonce((n) => n + 1);
+      return;
+    }
+    const current = live.current.draftText;
+    pushUndo(current);
+    setDraftAndSave(current.trim() ? `${current.replace(/\s+$/, '')}\n\n${clean} ` : `${clean} `);
+    setDraftOpenNonce((n) => n + 1);
+  };
+
+  const findSuggestion = (key: unknown) => life.allSuggestions.find((x) => x.key === key) ?? life.suggestions.find((x) => x.key === key);
+
+  /** Handles events from moment surfaces (generated interfaces). */
+  const handleMomentEvent = async (name: string, ctx: Record<string, unknown>) => {
+    const sug = findSuggestion(ctx.key);
+    const ref = sug ?? { key: String(ctx.key ?? ''), moment: String(ctx.moment ?? '') };
+    switch (name) {
+      case 'moment_dismiss':
+        await life.dismiss(ref);
+        setBanner('Hidden. You’ll see fewer cards like this for a while.');
+        return;
+      case 'moment_snooze': {
+        const choice = (['hour', 'tonight', 'tomorrow', 'weekend'] as const).find((c) => c === ctx.choice) ?? 'hour';
+        await life.snooze(ref, choice);
+        setBanner(`Snoozed ${choice === 'hour' ? 'for an hour' : choice === 'tonight' ? 'until tonight' : choice === 'tomorrow' ? 'until tomorrow morning' : 'until the weekend'}.`);
+        return;
+      }
+      case 'moment_simplify':
+        await life.toggleSimplify(String(ctx.moment ?? sug?.moment ?? ''));
+        return;
+      case 'moment_save': {
+        if (!sug) return;
+        const { buildSnapshot } = await import('../a2ui/DeskRuntime');
+        const id = `${sug.key}@${Date.now()}`;
+        const interp = life.interpretationFor(sug);
+        await life.saveView(
+          {
+            id,
+            title: sug.title,
+            moment: sug.moment,
+            savedAt: Date.now(),
+            messages: buildSnapshot(sug, { interactive: false, simplified: false, saved: true, aiNote: interp?.note ?? null, savedAtLabel: `Saved ${new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` }, `saved_${id}`) as Record<string, unknown>[],
+            evidence: sug.evidence.map((e) => ({ id: e.id, sourceId: e.sourceId, title: e.text, fetchedAt: e.fetchedAt ?? Date.now() })),
+          },
+          sug,
+        );
+        setBanner('Saved to History → Saved.');
+        return;
+      }
+      case 'moment_connect':
+        navigate({ name: 'connections', focus: typeof ctx.sourceId === 'string' ? ctx.sourceId : undefined });
+        return;
+      case 'moment_action': {
+        const action = String(ctx.name ?? '');
+        const value = typeof ctx.value === 'string' ? ctx.value : '';
+        if (sug) life.acted(sug);
+        if (action === 'reflect' || action === 'add_note') {
+          if (route !== 'today') navigate({ name: 'today' });
+          appendToDraft(value);
+          setBanner('Added to today’s note — undo is in the note.');
+        } else if (action === 'open_project' && value) {
+          await selectProject(Number(value));
+          navigate({ name: 'today' });
+          setDraftOpenNonce((n) => n + 1);
+        } else if (action === 'open_url' && /^https?:\/\//.test(value)) {
+          window.open(value, '_blank', 'noopener,noreferrer');
+        } else if (action === 'start_focus') {
+          actions.startQuickFocus();
+        } else if (action === 'mark_done') {
+          await markDone(true);
+        } else if (action === 'dismiss' && sug) {
+          await life.dismiss(sug);
+        } else if (action === 'open_today') {
+          navigate({ name: 'today' });
+        }
+        return;
+      }
+    }
+  };
+
   const exportBackup = async () => {
     await downloadBackup(repo);
     setBanner('Backup downloaded.');
@@ -589,6 +696,10 @@ function useActions(repo: JournalRepository, initialBanner: string | null = null
 
   /** Handles actions dispatched from A2UI surfaces. */
   const handleDeskAction = (name: string, context: Record<string, unknown>) => {
+    if (name.startsWith('moment_')) {
+      handleMomentEvent(name, context);
+      return;
+    }
     const run = (n: string) => {
       switch (n) {
         case 'use_starter':
@@ -716,16 +827,29 @@ function useActions(repo: JournalRepository, initialBanner: string | null = null
     restoreCompanion: () => setDismissedKey(null),
     flushDraftNow,
     focusProjectAfterCreate: (id: number) => setSelectedId(id),
+    appendToDraft,
   };
 
-  return { state, actions };
+  return { state, actions, life };
 }
 
 type Store = ReturnType<typeof useActions>;
 const StoreContext = createContext<Store | null>(null);
 
-export function AppStoreProvider({ repo, initialBanner = null, children }: { repo: JournalRepository; initialBanner?: string | null; children: ReactNode }) {
-  const store = useActions(repo, initialBanner);
+export function AppStoreProvider({
+  repo,
+  contextStore,
+  aiClient,
+  initialBanner = null,
+  children,
+}: {
+  repo: JournalRepository;
+  contextStore: ContextStore;
+  aiClient: AiClient;
+  initialBanner?: string | null;
+  children: ReactNode;
+}) {
+  const store = useActions(repo, initialBanner, contextStore, aiClient);
   return <StoreContext.Provider value={store}>{children}</StoreContext.Provider>;
 }
 

@@ -81,6 +81,11 @@ export class JournalRepository implements AiSettingsSource {
     return (await this.db.getFromIndex('entries', 'byProjectDate', [projectId, dateIso])) ?? null;
   }
 
+  /** Every entry across projects (for the built-in journal source and memories). */
+  async getAllEntries(): Promise<JournalEntry[]> {
+    return this.db.getAll('entries');
+  }
+
   async getEntriesForProject(projectId: number): Promise<JournalEntry[]> {
     const all = await this.db.getAllFromIndex('entries', 'byProject', projectId);
     return all.sort((a, b) => (a.dateIso < b.dateIso ? 1 : a.dateIso > b.dateIso ? -1 : 0));

@@ -3,3 +3,8 @@ dist
 dev-dist
 *.local
 tsconfig.tsbuildinfo
+
+# local env overrides (never commit)
+.env
+.env.*.local
+.env.local

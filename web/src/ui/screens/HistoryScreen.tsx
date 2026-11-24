@@ -1,10 +1,15 @@
+import { lazy, Suspense } from 'react';
+import { MOMENT_LABELS, type MomentKind } from '../../core/context/moments';
 import { parseLocalDate } from '../../core/time';
 import { navigate } from '../../state/router';
+import { Icon } from '../icons';
+
+const SnapshotSurface = lazy(() => import('../../a2ui/DeskRuntime').then((m) => ({ default: m.SnapshotSurface })));
 import { useStore } from '../../state/store';
 import { ProactiveSurface } from '../ProactiveSurface';
 
-export function HistoryScreen() {
-  const { state, actions } = useStore();
+export function HistoryScreen({ tab = 'pages' }: { tab?: 'pages' | 'saved' }) {
+  const { state, actions, life } = useStore();
   const project = state.activeProject;
   const discreet = state.preferences.discreetDeskModeEnabled;
 
@@ -28,13 +33,49 @@ export function HistoryScreen() {
         )}
       </div>
 
-      {project && state.entries.length > 0 && (
+      <div className="segmented history-tabs" role="tablist" aria-label="History view" style={{ marginBottom: 14 }}>
+        <button role="tab" aria-pressed={tab === 'pages'} aria-selected={tab === 'pages'} onClick={() => navigate({ name: 'history' })}>
+          Pages
+        </button>
+        <button role="tab" aria-pressed={tab === 'saved'} aria-selected={tab === 'saved'} onClick={() => navigate({ name: 'history', tab: 'saved' })} data-testid="history_saved_tab">
+          Saved ({life.savedViews.length})
+        </button>
+      </div>
+
+      {tab === 'saved' ? (
+        life.savedViews.length === 0 ? (
+          <div className="empty card">
+            <h2>Nothing saved yet</h2>
+            <p className="muted">Tap “Save” on a suggestion card to keep it here, exactly as it was, with its evidence.</p>
+          </div>
+        ) : (
+          <div className="stack">
+            {life.savedViews.map((v) => (
+              <article key={v.id} className="card now-card saved-card" data-testid="saved_view">
+                <div className="spread small muted" style={{ marginBottom: 6 }}>
+                  <span>
+                    {MOMENT_LABELS[v.moment as MomentKind] ?? v.moment} · data as of {new Date(v.savedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                  </span>
+                  <button className="icon-btn" aria-label={`Delete saved “${v.title}”`} onClick={() => life.deleteView(v.id)}>
+                    <Icon name="delete" size={16} />
+                  </button>
+                </div>
+                <Suspense fallback={<p className="serif">{v.title}</p>}>
+                  <SnapshotSurface id={v.id} messages={v.messages} />
+                </Suspense>
+              </article>
+            ))}
+          </div>
+        )
+      ) : null}
+
+      {tab === 'pages' && project && state.entries.length > 0 && (
         <div style={{ marginBottom: 14 }}>
           <ProactiveSurface kind="context" />
         </div>
       )}
 
-      {!project || state.entries.length === 0 ? (
+      {tab !== 'pages' ? null : !project || state.entries.length === 0 ? (
         <div className="empty card">
           <h2>No journal entries yet</h2>
           <p className="muted">Create or open a project in Today to record your first page.</p>

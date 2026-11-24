@@ -12,6 +12,9 @@ import {
 } from '../models';
 import { parseDeskCues, validateDraftSuggestion, validateHintResponse, validateProjectProposal, validatePromptResponse } from '../validator';
 import type { AiClient, AiGenerationResult, ResponseSchema } from './aiClient';
+import { CONTENT_SECTIONS, validateLayout, type ContentSection } from '../a2ui/momentAgent';
+import type { Suggestion } from '../context/moments';
+import { extractJsonBlock } from '../validator';
 
 export interface GeneratedPromptResult {
   promptText: string;
@@ -68,6 +71,10 @@ export const SCHEMAS = {
   hint: { name: 'hint', schema: obj({ hint: str }) },
   suggestion: { name: 'suggestion', schema: obj({ suggestion: str }) },
   deskCues: { name: 'desk_cues', schema: obj({ starterLine: str, recallCue: str, ambientCue: str, briefDigest: str }) },
+  interpretation: {
+    name: 'moment_interpretation',
+    schema: obj({ note: str, layout: { type: 'array', items: { type: 'string', enum: [...CONTENT_SECTIONS] } }, usedEvidence: strArr }),
+  },
 } satisfies Record<string, ResponseSchema>;
 
 /**
@@ -304,6 +311,46 @@ Rules:
     if (snapshot.daylightSummary) lines.push(`Daylight: ${snapshot.daylightSummary}`);
     const res = await this.ai.generate(system, lines.join('\n'), { temperature: 0.35, maxTokens: 260, schema: SCHEMAS.deskCues });
     return res.kind === 'success' ? parseDeskCues(res.text) : null;
+  }
+}
+
+export interface Interpretation {
+  note: string;
+  layout: ContentSection[] | null;
+}
+
+/**
+ * Optional AI interpretation of a suggestion: one short note plus an optional section order.
+ * Only evidence from sources the user allowed (`allowedSources`) is sent; the reply must cite
+ * evidence ids it was given and may only choose catalog sections the suggestion already has.
+ * Returns null whenever anything doesn't validate — the deterministic card is always complete.
+ */
+export async function interpretSuggestion(ai: AiClient, s: Suggestion, allowedSources: Set<string>): Promise<Interpretation | null> {
+  const evidence = s.evidence.filter((e) => e.origin === 'time' || allowedSources.has(e.sourceId));
+  if (!evidence.some((e) => e.origin === 'data')) return null; // nothing the user allowed the AI to read
+  const available = CONTENT_SECTIONS.filter((k) => s.sections[k]);
+  const system = `You add one short, practical interpretation to a journaling companion card.
+Return ONLY JSON: {"note": "...", "layout": [...], "usedEvidence": [...]}.
+Rules:
+- note: max 140 characters, calm, concrete, and ONLY derived from the evidence provided. Never invent facts, times, names or numbers.
+- layout: an ordering of these available sections, most useful first (you may omit some): ${available.join(', ')}.
+- usedEvidence: the ids of the evidence you relied on (must be from the list).`;
+  // The card title can quote a source the user didn't share (e.g. a calendar event), so only the moment kind is sent.
+  const lines = [`Moment: ${s.moment}`, '## Evidence (id | source | fact)', ...evidence.map((e) => `${e.id} | ${e.sourceLabel} | ${e.text}`)];
+  const res = await ai.generate(system, lines.join('\n'), { temperature: 0.3, maxTokens: 220, schema: SCHEMAS.interpretation });
+  if (res.kind !== 'success') return null;
+  const block = extractJsonBlock(res.text);
+  if (!block) return null;
+  try {
+    const parsed = JSON.parse(block) as { note?: unknown; layout?: unknown; usedEvidence?: unknown };
+    const note = typeof parsed.note === 'string' ? parsed.note.trim().slice(0, 160) : '';
+    const ids = new Set(evidence.map((e) => e.id));
+    const used = Array.isArray(parsed.usedEvidence) ? parsed.usedEvidence : [];
+    // Grounding check: the note must cite at least one real evidence id and none that weren't provided.
+    if (!note || !used.length || used.some((u) => typeof u !== 'string' || !ids.has(u))) return null;
+    return { note, layout: validateLayout(parsed.layout, s.sections) };
+  } catch {
+    return null;
   }
 }
 

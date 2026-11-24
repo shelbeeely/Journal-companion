@@ -4,6 +4,9 @@ import type { ExportBundle } from '../../core/repository';
 import { beginOpenRouterOAuth, listModels, type ModelOption } from '../../core/ai/openRouterClient';
 import { useInstallPrompt } from '../../state/install';
 import { useStore } from '../../state/store';
+import { navigate } from '../../state/router';
+import { MOMENT_LABELS, type MomentKind } from '../../core/context/moments';
+import { isEnabled, SOURCE_META } from '../../core/sources/meta';
 import { Dialog, Segmented, Spinner, Switch } from '../controls';
 import { Icon } from '../icons';
 import { WeatherCard } from '../deskCards';
@@ -22,6 +25,10 @@ export function SettingsScreen() {
       <ProactiveSurface kind="context" />
 
       <InstallCard />
+
+      <ConnectionsEntry />
+      <RhythmCard />
+      <SuggestionsCard />
 
       <section className="card">
         <h2>Appearance & Eye Comfort</h2>
@@ -440,6 +447,121 @@ function InstallCard() {
         <p className="small" style={{ margin: 0 }}>
           Use your browser menu's “Install app” or “Add to Home screen” option.
         </p>
+      )}
+    </section>
+  );
+}
+
+function ConnectionsEntry() {
+  const { life } = useStore();
+  const on = Object.keys(SOURCE_META).filter((id) => isEnabled(id, life.states));
+  const problems = on.filter((id) => ['needs_reauth', 'error'].includes(life.states[id]?.status ?? ''));
+  return (
+    <section className="card">
+      <div className="spread">
+        <h2>Connections</h2>
+        <span className={`badge ${problems.length ? 'warn' : ''}`}>{problems.length ? `${problems.length} need attention` : `${on.length} on`}</span>
+      </div>
+      <p className="small muted">
+        Calendars, tasks, media, music, reading, notes, weather and places — {Object.keys(SOURCE_META).length} sources. Each connects directly from this device; turn any of them off at any time.
+      </p>
+      <button className="btn filled sm" onClick={() => navigate({ name: 'connections' })} data-testid="open_connections">
+        Manage connections
+      </button>
+    </section>
+  );
+}
+
+const HOURS = Array.from({ length: 24 }, (_, h) => h);
+const hourLabel = (h: number) => new Date(2000, 0, 1, h).toLocaleTimeString(undefined, { hour: 'numeric' });
+const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function RhythmCard() {
+  const { state, actions, life } = useStore();
+  const p = state.preferences;
+  const t = life.temporal;
+  return (
+    <section className="card">
+      <h2>Day & rhythm</h2>
+      <p className="small muted">
+        Suggestions follow your day: plans in the morning, something to watch that fits before bed, reflection in the evening. Right now: {t.dayName} {t.partLabel.toLowerCase()}, {t.isWorkday ? 'a workday' : 'a day off'}
+        {t.holiday ? ` (${t.holiday})` : ''}, {t.season}, {t.moon.emoji} {t.moon.label.toLowerCase()}
+        {t.travel.traveling ? ', traveling' : ''}.
+      </p>
+      <div className="row">
+        <label className="field" style={{ flex: '1 1 140px' }}>
+          <span className="label">I usually wake up</span>
+          <select className="input" value={p.wakeHour} onChange={(e) => actions.updatePreferences({ wakeHour: Number(e.target.value) })}>
+            {HOURS.map((h) => (
+              <option key={h} value={h}>
+                {hourLabel(h)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field" style={{ flex: '1 1 140px' }}>
+          <span className="label">Bedtime</span>
+          <select className="input" value={p.sleepHour} onChange={(e) => actions.updatePreferences({ sleepHour: Number(e.target.value) })}>
+            {HOURS.map((h) => (
+              <option key={h} value={h}>
+                {hourLabel(h)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="field" style={{ marginTop: 10 }}>
+        <span className="label">Workdays</span>
+        <div className="row" role="group" aria-label="Workdays">
+          {DOW.map((d, i) => (
+            <button key={d} className="chip" aria-pressed={p.workdays.includes(i)} onClick={() => actions.updatePreferences({ workdays: p.workdays.includes(i) ? p.workdays.filter((x) => x !== i) : [...p.workdays, i].sort() })}>
+              {d}
+            </button>
+          ))}
+        </div>
+      </div>
+      <Switch label="Detect travel" description={`Lighter suggestions and no work tasks when you’re away from ${p.homeTimeZone?.split('/').pop()?.replace(/_/g, ' ') ?? 'home'}.`} checked={p.detectTravel} onChange={(v) => actions.updatePreferences({ detectTravel: v })} />
+      {t.travel.traveling && (
+        <button className="btn text sm" onClick={() => actions.updatePreferences({ homeTimeZone: t.travel.currentZone })}>
+          I live here now
+        </button>
+      )}
+    </section>
+  );
+}
+
+function SuggestionsCard() {
+  const { state, actions } = useStore();
+  const p = state.preferences;
+  const kinds = Object.keys(MOMENT_LABELS) as MomentKind[];
+  return (
+    <section className="card">
+      <h2>Suggestions</h2>
+      <p className="small muted">Shown only inside the app — no notifications. Every card says why it appeared, and you can simplify, snooze, dismiss or save it.</p>
+      <div className="field">
+        <span className="label">Which moments to suggest</span>
+        <div className="row" role="group" aria-label="Moments">
+          {kinds.map((k) => (
+            <button key={k} className="chip" aria-pressed={!p.disabledMoments.includes(k)} onClick={() => actions.updatePreferences({ disabledMoments: p.disabledMoments.includes(k) ? p.disabledMoments.filter((x) => x !== k) : [...p.disabledMoments, k] })}>
+              {MOMENT_LABELS[k]}
+            </button>
+          ))}
+        </div>
+      </div>
+      <label className="field" style={{ marginTop: 10 }}>
+        <span className="label">New cards per day</span>
+        <select className="input" value={p.momentDailyLimit} onChange={(e) => actions.updatePreferences({ momentDailyLimit: Number(e.target.value) })}>
+          {[3, 6, 12, 24].map((n) => (
+            <option key={n} value={n}>
+              Up to {n}
+            </option>
+          ))}
+        </select>
+      </label>
+      {p.simplifiedMoments.length > 0 && (
+        <button className="btn text sm" onClick={() => actions.updatePreferences({ simplifiedMoments: [] })}>
+          Show full cards again ({p.simplifiedMoments.length} simplified)
+        </button>
       )}
     </section>
   );

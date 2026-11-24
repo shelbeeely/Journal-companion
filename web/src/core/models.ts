@@ -194,6 +194,22 @@ export interface DeskUiPreferences {
   screenSaverIdleMinutes: number;
   /** How much the proactive desk surfaces unprompted. */
   proactiveDensity: 'RICH' | 'CALM';
+  /* Day & rhythm (temporal context) */
+  wakeHour: number;
+  sleepHour: number;
+  /** 0 = Sunday … 6 = Saturday. */
+  workdays: number[];
+  weekStartsOn: 0 | 1;
+  hemisphereOverride: 'north' | 'south' | null;
+  detectTravel: boolean;
+  /** Learned on first run; differing from the current zone means "traveling". */
+  homeTimeZone: string | null;
+  /* Suggestions */
+  disabledMoments: string[];
+  /** Max moment cards shown per day (in-app only). */
+  momentDailyLimit: number;
+  /** Simplified (compact) layout per moment type. */
+  simplifiedMoments: string[];
 }
 
 export const DEFAULT_PREFERENCES: DeskUiPreferences = {
@@ -209,6 +225,16 @@ export const DEFAULT_PREFERENCES: DeskUiPreferences = {
   screenSaverDimBrightness: true,
   screenSaverIdleMinutes: 0,
   proactiveDensity: 'RICH',
+  wakeHour: 7,
+  sleepHour: 23,
+  workdays: [1, 2, 3, 4, 5],
+  weekStartsOn: 1,
+  hemisphereOverride: null,
+  detectTravel: true,
+  homeTimeZone: null,
+  disabledMoments: [],
+  momentDailyLimit: 12,
+  simplifiedMoments: [],
 };
 
 export type AiAvailabilityState =

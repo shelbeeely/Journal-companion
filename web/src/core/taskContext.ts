@@ -14,7 +14,7 @@ export type TaskKind =
   | 'configuring'
   | 'ambient';
 
-export type RouteName = 'today' | 'projects' | 'newProject' | 'editProject' | 'history' | 'settings';
+export type RouteName = 'today' | 'projects' | 'newProject' | 'editProject' | 'history' | 'settings' | 'connections';
 
 export interface TaskSignals {
   route: RouteName;
@@ -40,6 +40,7 @@ export function detectTask(s: TaskSignals): TaskKind {
   if (s.screenSaver) return 'ambient';
   switch (s.route) {
     case 'settings':
+    case 'connections':
       return 'configuring';
     case 'history':
       return 'reviewing';

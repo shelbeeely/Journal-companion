@@ -1352,3 +1352,461 @@ html[data-keyboard='open'] .banner {
     font-size: 1.2rem;
   }
 }
+
+/* ===================== Context-aware moments (Now row) ===================== */
+
+.now {
+  margin-bottom: 16px;
+}
+.now-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.now-asks {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.now-asks::-webkit-scrollbar {
+  display: none;
+}
+.now-asks .chip {
+  flex: none;
+}
+.now-row {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  align-items: start;
+}
+.now-row .card + .card {
+  margin-top: 0;
+}
+.now-card {
+  padding: 16px;
+}
+.now-empty {
+  margin: 0;
+}
+@media (max-width: 599px) {
+  .now-row {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    margin-inline: -16px;
+    padding: 0 16px 4px;
+    scrollbar-width: none;
+  }
+  .now-row::-webkit-scrollbar {
+    display: none;
+  }
+  .now-row > .now-card {
+    flex: 0 0 min(88%, 420px);
+    scroll-snap-align: start;
+  }
+  .now-row.count-1 > .now-card {
+    flex-basis: 100%;
+  }
+}
+
+.m-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.m-column > div:empty {
+  display: none;
+}
+.m-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.m-title {
+  font-size: 1.22rem;
+  font-weight: 500;
+  margin: 6px 0 2px;
+  text-wrap: balance;
+}
+.m-summary {
+  margin: 0;
+}
+.m-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.m-note {
+  color: var(--accent);
+  font-weight: 600;
+}
+.m-event {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+.m-event-time {
+  flex: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+  min-width: 74px;
+}
+.m-event-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.m-leave {
+  color: var(--accent);
+}
+.m-hours {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.m-hours > div {
+  flex: 1 0 52px;
+}
+.m-hour {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.m-pop {
+  color: var(--primary);
+  font-weight: 700;
+}
+.m-picks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.m-pick {
+  display: grid;
+  grid-template-columns: 46px 1fr;
+  gap: 10px;
+  align-items: start;
+  width: 100%;
+  text-align: left;
+  padding: 8px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface-low);
+  color: inherit;
+  font: inherit;
+  cursor: default;
+}
+button.m-pick {
+  cursor: pointer;
+}
+button.m-pick:hover {
+  background: var(--surface-2);
+}
+.m-poster {
+  width: 46px;
+  height: 66px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--surface-3);
+}
+.m-pick-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.m-checklist,
+.m-extras,
+.m-evidence,
+.conn-unsupported {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.m-checklist li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.92rem;
+}
+.m-checklist li.done span:first-of-type {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+.m-extras li {
+  font-size: 0.9rem;
+  padding-left: 14px;
+  position: relative;
+}
+.m-extras li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 0.6em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--primary);
+}
+.m-timeline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-left: 2px solid var(--line);
+  margin-left: 4px;
+}
+.m-tl {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 8px;
+  padding: 4px 0 4px 12px;
+  position: relative;
+  font-size: 0.9rem;
+}
+.m-tl::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 0.75em;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--primary);
+}
+.m-tl.kind-task::before {
+  border-color: var(--accent);
+}
+.m-quote,
+.m-memory blockquote {
+  margin: 0;
+  font-style: italic;
+  line-height: 1.45;
+}
+.m-memory {
+  margin: 0;
+  padding: 10px 14px;
+  border-left: 3px solid var(--primary);
+  background: var(--surface-low);
+  border-radius: 0 12px 12px 0;
+}
+.m-prompt {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--primary-soft);
+}
+.m-prompt p {
+  margin: 4px 0 8px;
+  font-size: 1.05rem;
+}
+.m-ai {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px dashed var(--accent);
+  background: var(--accent-soft);
+}
+.m-ai p {
+  margin: 6px 0 2px;
+}
+.m-ai-badge {
+  background: var(--surface);
+  color: var(--accent);
+}
+.m-why summary {
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  color: var(--muted);
+}
+.m-why summary::-webkit-details-marker {
+  display: none;
+}
+.m-why[open] summary {
+  color: var(--text);
+}
+.m-evidence {
+  margin-top: 6px;
+}
+.m-evidence li {
+  font-size: 0.85rem;
+}
+.m-src {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 1px 8px;
+  border-radius: 999px;
+  margin-right: 4px;
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+.m-src.time {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.m-missing {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.m-missing-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+.m-missing-row span {
+  flex: 1;
+}
+.m-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+  margin-top: -2px;
+}
+.m-controls .icon-btn {
+  margin-left: auto;
+}
+.m-snooze {
+  position: relative;
+}
+.m-snooze-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  min-width: 210px;
+  padding: 6px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
+}
+.m-snooze-menu button {
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 10px 12px;
+  min-height: 44px;
+  border-radius: 10px;
+  font: inherit;
+  cursor: pointer;
+}
+.m-snooze-menu button:hover {
+  background: var(--surface-2);
+}
+.m-column.simplified .m-title {
+  font-size: 1.1rem;
+}
+.saved-card .m-column {
+  gap: 10px;
+}
+
+/* ------------------------------- Connections ------------------------------- */
+
+.conn-cat {
+  font-size: 0.8rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 8px;
+}
+.conn-card {
+  padding: 14px 16px;
+}
+.conn-card.focused {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+.conn-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.conn-title {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 4px 0;
+  cursor: pointer;
+}
+.conn-body {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  gap: 10px;
+}
+.conn-error {
+  color: var(--accent);
+  margin: 8px 0 0;
+}
+.conn-toggles {
+  border-top: 1px solid var(--line);
+}
+.conn-thumb {
+  width: 44px;
+  height: 44px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+.history-tabs {
+  display: inline-flex;
+}
+
+/* Reserve space for lazily rendered context surfaces so content below doesn't jump when they load. */
+[data-testid='surface_context'] {
+  min-height: 132px;
+}
+
+.now-eyebrow {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+@media (pointer: coarse) {
+  .m-why summary {
+    min-height: 44px;
+  }
+}
+.now-eyebrow {
+  display: block;
+  height: 22px;
+  line-height: 22px;
+}
+.now-eyebrow .badge {
+  padding: 0 8px;
+  line-height: 18px;
+  vertical-align: 1px;
+}

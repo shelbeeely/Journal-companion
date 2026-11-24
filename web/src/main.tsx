@@ -4,6 +4,8 @@ import { JournalAiOrchestrator } from './core/ai/orchestrator';
 import { OpenRouterClient, completeOpenRouterOAuth } from './core/ai/openRouterClient';
 import { openJournalDb } from './core/db';
 import { JournalRepository } from './core/repository';
+import { ContextStore } from './core/sources/contextStore';
+import { completePkceAuth } from './core/sources/auth';
 import { AppStoreProvider } from './state/store';
 import { App } from './ui/App';
 import './styles.css';
@@ -19,10 +21,18 @@ async function boot() {
     repo = new JournalRepository(db, new JournalAiOrchestrator(client, () => repo?.isDiscreet() ?? true));
     await repo.getPreferences();
 
-    // Returning from "Connect OpenRouter"? Exchange the one-time code for this user's key.
+    const contextStore = new ContextStore(db);
+
+    // Returning from a source sign-in (Microsoft / Spotify / Dropbox) or "Connect OpenRouter"?
     let oauthMessage: string | null = null;
     try {
-      const key = await completeOpenRouterOAuth();
+      const provider = await completePkceAuth(contextStore);
+      if (provider) oauthMessage = `${provider[0].toUpperCase()}${provider.slice(1)} connected. Syncing now…`;
+    } catch (e) {
+      oauthMessage = (e as Error).message;
+    }
+    try {
+      const key = oauthMessage ? null : await completeOpenRouterOAuth();
       if (key) {
         await repo.updateAiSettings({ apiKey: key, connectedVia: 'oauth' });
         oauthMessage = 'OpenRouter connected. Review what gets sent to turn AI on.';
@@ -34,7 +44,7 @@ async function boot() {
     navigator.storage?.persist?.().catch(() => undefined);
     root.render(
       <StrictMode>
-        <AppStoreProvider repo={repo} initialBanner={oauthMessage}>
+        <AppStoreProvider repo={repo} contextStore={contextStore} aiClient={client} initialBanner={oauthMessage}>
           <App />
         </AppStoreProvider>
       </StrictMode>,

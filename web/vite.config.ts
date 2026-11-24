@@ -14,6 +14,13 @@ export default defineConfig({
     VitePWA({
       registerType: 'prompt',
       injectRegister: false,
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,png,svg,woff2,webmanifest}'],
+        globIgnores: ['screenshots/**'],
+      },
       includeAssets: ['icons/*.png'],
       manifest: {
         id: './',
@@ -30,6 +37,15 @@ export default defineConfig({
         theme_color: '#285744',
         categories: ['productivity', 'lifestyle'],
         launch_handler: { client_mode: ['focus-existing', 'auto'] },
+        share_target: {
+          action: './share-target',
+          method: 'POST',
+          enctype: 'multipart/form-data',
+          params: { title: 'title', text: 'text', url: 'url', files: [{ name: 'media', accept: ['image/*'] }] },
+        },
+        file_handlers: [
+          { action: './#/settings/connections', accept: { 'text/calendar': ['.ics'], 'text/markdown': ['.md', '.markdown'], 'application/json': ['.json'] } },
+        ],
         screenshots: [
           { src: 'screenshots/today-phone.png', sizes: '1080x2400', type: 'image/png', form_factor: 'narrow', label: 'Today on a phone' },
           { src: 'screenshots/today-desktop.png', sizes: '2732x1720', type: 'image/png', form_factor: 'wide', label: 'Desk Mode on a laptop' },
@@ -44,14 +60,6 @@ export default defineConfig({
           { name: "Today's page", url: './#/today', icons: [{ src: 'icons/icon-192.png', sizes: '192x192' }] },
           { name: 'New project', url: './#/projects/new', icons: [{ src: 'icons/icon-192.png', sizes: '192x192' }] },
         ],
-      },
-      workbox: {
-        globPatterns: ['**/*.{js,css,html,png,svg,woff2,webmanifest}'],
-        globIgnores: ['screenshots/**'],
-        navigateFallback: 'index.html',
-        cleanupOutdatedCaches: true,
-        // Weather is fetched live and cached by the app itself (with stale labelling), never by the SW.
-        runtimeCaching: [],
       },
       devOptions: { enabled: false },
     }),

@@ -4,6 +4,7 @@ import { Catalog, CommonSchemas } from '@a2ui/web_core/v0_9';
 import { createComponentImplementation } from '@a2ui/react/v0_9';
 import { DESK_CATALOG_ID } from '../core/a2ui/deskAgent';
 import { Icon, type IconName } from '../ui/icons';
+import { MOMENT_COMPONENTS } from './momentComponents';
 
 /**
  * The Journal Companion desk catalog (A2UI v0.9). Names and props mirror the Android
@@ -364,6 +365,7 @@ export const deskCatalog = new Catalog(
     DeskAmbientWindow,
     DeskGlanceStrip,
     DeskGlanceChip,
+    ...MOMENT_COMPONENTS,
   ],
   [],
 );

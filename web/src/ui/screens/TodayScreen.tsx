@@ -7,6 +7,7 @@ import { useEffectiveDark } from '../../state/theme';
 import { Dialog, Segmented, Switch } from '../controls';
 import { DateTimeCard, FocusTimerCard, WeatherCard, formatClock } from '../deskCards';
 import { ProactiveSurface } from '../ProactiveSurface';
+import { NowRow } from '../NowRow';
 import { PHONE_QUERY, useMediaQuery } from '../../state/media';
 import { Icon } from '../icons';
 import { useWakeLock } from '../../state/wakeLock';
@@ -136,6 +137,8 @@ export function TodayScreen({ onOpenScreenSaver }: { onOpenScreenSaver: () => vo
       </div>
 
       {isPhone && <ProactiveSurface kind="glance" />}
+
+      <NowRow />
 
       <div className={`desk ${showCards ? 'with-cards' : ''}`}>
         <div className="stack">
@@ -296,6 +299,9 @@ function DraftDrawer() {
       setOpen(true);
     }
   }, [entryKey, hasDraft]);
+
+  // A focused note that unmounts (navigating away) never fires blur — clear the writing signal ourselves.
+  useEffect(() => () => actions.setDraftFocused(false), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Open + focus only for a *new* request (e.g. "Use starter"), never on remount — that would pop
   // the on-screen keyboard every time the user comes back to Today.

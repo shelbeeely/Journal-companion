@@ -12,6 +12,7 @@ const HistoryScreen = lazy(() => import('./screens/HistoryScreen').then((m) => (
 const ProjectEditorScreen = lazy(() => import('./screens/ProjectEditorScreen').then((m) => ({ default: m.ProjectEditorScreen })));
 const ProjectsScreen = lazy(() => import('./screens/ProjectsScreen').then((m) => ({ default: m.ProjectsScreen })));
 const SettingsScreen = lazy(() => import('./screens/SettingsScreen').then((m) => ({ default: m.SettingsScreen })));
+const ConnectionsScreen = lazy(() => import('./screens/ConnectionsScreen').then((m) => ({ default: m.ConnectionsScreen })));
 const ScreenSaver = lazy(() => import('./ScreenSaver').then((m) => ({ default: m.ScreenSaver })));
 import { UpdatePrompt } from './UpdatePrompt';
 
@@ -19,7 +20,7 @@ const NAV: { route: Route; label: string; icon: IconName; match: Route['name'][]
   { route: { name: 'today' }, label: 'Today', icon: 'today', match: ['today'] },
   { route: { name: 'projects' }, label: 'Projects', icon: 'projects', match: ['projects', 'newProject', 'editProject'] },
   { route: { name: 'history' }, label: 'History', icon: 'history', match: ['history'] },
-  { route: { name: 'settings' }, label: 'Settings', icon: 'settings', match: ['settings'] },
+  { route: { name: 'settings' }, label: 'Settings', icon: 'settings', match: ['settings', 'connections'] },
 ];
 
 export function App() {
@@ -63,10 +64,13 @@ export function App() {
       screen = <ProjectEditorScreen key={route.id} editingId={route.id} />;
       break;
     case 'history':
-      screen = <HistoryScreen />;
+      screen = <HistoryScreen tab={route.tab ?? 'pages'} />;
       break;
     case 'settings':
       screen = <SettingsScreen />;
+      break;
+    case 'connections':
+      screen = <ConnectionsScreen focus={route.focus} />;
       break;
   }
 

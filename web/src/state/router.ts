@@ -5,13 +5,17 @@ export type Route =
   | { name: 'projects' }
   | { name: 'newProject' }
   | { name: 'editProject'; id: number }
-  | { name: 'history' }
-  | { name: 'settings' };
+  | { name: 'history'; tab?: 'pages' | 'saved' }
+  | { name: 'settings' }
+  | { name: 'connections'; focus?: string };
 
 export function parseHash(hash: string): Route {
   const path = hash.replace(/^#/, '') || '/today';
   const edit = /^\/projects\/(\d+)\/edit$/.exec(path);
   if (edit) return { name: 'editProject', id: Number(edit[1]) };
+  const conn = /^\/settings\/connections(?:\/([\w-]+))?$/.exec(path);
+  if (conn) return { name: 'connections', focus: conn[1] };
+  if (path === '/history/saved') return { name: 'history', tab: 'saved' };
   switch (path) {
     case '/projects':
       return { name: 'projects' };
@@ -32,6 +36,10 @@ export function hrefFor(route: Route): string {
       return `#/projects/${route.id}/edit`;
     case 'newProject':
       return '#/projects/new';
+    case 'connections':
+      return route.focus ? `#/settings/connections/${route.focus}` : '#/settings/connections';
+    case 'history':
+      return route.tab === 'saved' ? '#/history/saved' : '#/history';
     default:
       return `#/${route.name}`;
   }
